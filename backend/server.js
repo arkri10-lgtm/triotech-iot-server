@@ -106,18 +106,22 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     .row-input {
-      width: 150px;
+      width: 12ch;
       height: 30px;
-      padding: 0 8px;
+      padding: 0 6px;
       background: #fff;
     }
 
+    .phone-input {
+      width: 9ch;
+    }
+
     .address-input {
-      width: 260px;
+      width: 29ch;
     }
 
     .setting-input {
-      width: 86px;
+      width: 6ch;
     }
 
     .save-row {
@@ -157,13 +161,13 @@ const dashboardHtml = String.raw`<!doctype html>
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1760px;
+      min-width: 1460px;
     }
 
     th,
     td {
       border-bottom: 1px solid var(--line);
-      padding: 9px 10px;
+      padding: 8px 6px;
       text-align: left;
       white-space: nowrap;
     }
@@ -261,7 +265,6 @@ const dashboardHtml = String.raw`<!doctype html>
             <th>Device ID</th>
             <th>Phone</th>
             <th>Address</th>
-            <th>Save</th>
             <th>Status</th>
             <th>Last seen</th>
             <th>Temp</th>
@@ -273,12 +276,12 @@ const dashboardHtml = String.raw`<!doctype html>
             <th>High temp</th>
             <th>High humidity</th>
             <th>Interval</th>
-            <th>Save settings</th>
             <th>Alarm</th>
+            <th>Save</th>
           </tr>
         </thead>
         <tbody id="deviceRows">
-          <tr><td colspan="17" class="empty">No device data loaded.</td></tr>
+          <tr><td colspan="16" class="empty">No device data loaded.</td></tr>
         </tbody>
       </table>
     </div>
@@ -390,12 +393,20 @@ const dashboardHtml = String.raw`<!doctype html>
       return input;
     }
 
-    function settingInput(value, activeValue, extraClass) {
+    function formatSettingValue(value, decimals) {
+      if (value === null || value === undefined || value === "") return "";
+      const number = Number(value);
+      if (!Number.isFinite(number)) return String(value);
+      return decimals === null ? String(Math.round(number)) : number.toFixed(decimals);
+    }
+
+    function settingInput(value, activeValue, extraClass, decimals) {
       const input = document.createElement("input");
       input.className = "row-input setting-input " + (extraClass || "");
-      input.type = "number";
-      input.step = "0.1";
-      input.value = value === null || value === undefined ? "" : String(value);
+      input.type = "text";
+      input.inputMode = "decimal";
+      input.maxLength = 4;
+      input.value = formatSettingValue(value, decimals);
       input.title = "Active value: " + fmt(activeValue, "");
       return input;
     }
@@ -412,67 +423,51 @@ const dashboardHtml = String.raw`<!doctype html>
       pendingSettingEdits.set(deviceId, pending);
     }
 
-    async function saveContact(deviceId, phoneInput, addressInput, button) {
-      button.disabled = true;
-      button.textContent = "Saving";
-      button.classList.remove("saved");
+    async function patchJson(url, body) {
+      const response = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
 
-      try {
-        const response = await fetch("/api/v1/devices/" + encodeURIComponent(deviceId) + "/contact", {
-          method: "PATCH",
-          headers: {
-            ...authHeaders(),
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            phone_number: phoneInput.value.trim(),
-            address: addressInput.value.trim()
-          })
-        });
-
-        if (!response.ok) throw new Error("HTTP " + response.status);
-
-        pendingContactEdits.delete(deviceId);
-        button.textContent = "Saved";
-        button.classList.add("saved");
-        setTimeout(() => {
-          button.textContent = "Save";
-          button.classList.remove("saved");
-        }, 1200);
-      } catch (error) {
-        button.textContent = "Error";
-        apiStatus.textContent = "contact save " + error.message;
-      } finally {
-        button.disabled = false;
+      if (!response.ok) {
+        const responseBody = await response.json().catch(() => ({}));
+        throw new Error(responseBody.error || ("HTTP " + response.status));
       }
+
+      return response.json();
     }
 
-    async function saveSettings(deviceId, lowInput, highInput, humidityInput, intervalInput, button) {
+    async function saveRow(deviceId, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, button) {
       button.disabled = true;
       button.textContent = "Saving";
       button.classList.remove("saved");
 
       try {
-        const response = await fetch("/api/v1/devices/" + encodeURIComponent(deviceId) + "/settings", {
-          method: "PATCH",
-          headers: {
-            ...authHeaders(),
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
+        const contactChanged = pendingContactEdits.has(deviceId);
+        const settingsChanged = pendingSettingEdits.has(deviceId);
+
+        if (settingsChanged) {
+          await patchJson("/api/v1/devices/" + encodeURIComponent(deviceId) + "/settings", {
             low_temperature: lowInput.value,
             high_temperature: highInput.value,
             high_humidity: humidityInput.value,
             telemetry_interval_sec: intervalInput.value
-          })
-        });
-
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          throw new Error(body.error || ("HTTP " + response.status));
+          });
+          pendingSettingEdits.delete(deviceId);
         }
 
-        pendingSettingEdits.delete(deviceId);
+        if (contactChanged) {
+          await patchJson("/api/v1/devices/" + encodeURIComponent(deviceId) + "/contact", {
+            phone_number: phoneInput.value.trim(),
+            address: addressInput.value.trim()
+          });
+          pendingContactEdits.delete(deviceId);
+        }
+
         button.textContent = "Saved";
         button.classList.add("saved");
         setTimeout(() => {
@@ -481,7 +476,7 @@ const dashboardHtml = String.raw`<!doctype html>
         }, 1200);
       } catch (error) {
         button.textContent = "Error";
-        apiStatus.textContent = "settings save " + error.message;
+        apiStatus.textContent = "save " + error.message;
       } finally {
         button.disabled = false;
       }
@@ -494,7 +489,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!devices.length) {
         const row = document.createElement("tr");
         cell(row, "No devices received yet.");
-        row.firstChild.colSpan = 17;
+        row.firstChild.colSpan = 16;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
         return;
@@ -513,31 +508,27 @@ const dashboardHtml = String.raw`<!doctype html>
         const pendingContact = pendingContactEdits.get(device.device_id) || {};
         const phoneInput = contactInput(pendingContact.phone_number ?? device.phone_number, "phone-input");
         const addressInput = contactInput(pendingContact.address ?? device.address, "address-input");
-        const saveButton = document.createElement("button");
-        saveButton.className = "save-row";
-        saveButton.textContent = "Save";
         phoneInput.addEventListener("input", () => setPendingContact(device.device_id, "phone_number", phoneInput.value));
         addressInput.addEventListener("input", () => setPendingContact(device.device_id, "address", addressInput.value));
-        saveButton.addEventListener("click", () => saveContact(device.device_id, phoneInput, addressInput, saveButton));
         const pendingSettings = pendingSettingEdits.get(device.device_id) || {};
-        const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input");
-        const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input");
-        const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input");
-        const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input");
-        intervalInput.step = "1";
-        const settingsButton = document.createElement("button");
-        settingsButton.className = "save-row";
-        settingsButton.textContent = "Save";
+        const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input", 1);
+        const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input", 1);
+        const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input", 1);
+        const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input", null);
+        const rowSaveButton = document.createElement("button");
+        rowSaveButton.className = "save-row";
+        rowSaveButton.textContent = "Save";
         lowInput.addEventListener("input", () => setPendingSetting(device.device_id, "low_temperature", lowInput.value));
         highInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_temperature", highInput.value));
         humidityInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_humidity", humidityInput.value));
         intervalInput.addEventListener("input", () => setPendingSetting(device.device_id, "telemetry_interval_sec", intervalInput.value));
-        settingsButton.addEventListener("click", () => saveSettings(device.device_id, lowInput, highInput, humidityInput, intervalInput, settingsButton));
+        rowSaveButton.addEventListener("click", () => {
+          saveRow(device.device_id, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, rowSaveButton);
+        });
 
         cell(row, device.device_id);
         cell(row, phoneInput);
         cell(row, addressInput);
-        cell(row, saveButton);
         cell(row, badge(status, statusKind));
         cell(row, fmtTime(device.last_seen) + (device.seconds_since_seen !== null ? " (" + fmtAge(device.seconds_since_seen) + ")" : ""));
         cell(row, fmt(device.temperature, " C"));
@@ -549,8 +540,8 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, highInput);
         cell(row, humidityInput);
         cell(row, intervalInput);
-        cell(row, settingsButton);
         cell(row, device.alarm_state ? badge(device.alarm_state, device.alarm_state === "ALARM" ? "alarm" : "ok") : "");
+        cell(row, rowSaveButton);
         deviceRows.appendChild(row);
       }
     }
