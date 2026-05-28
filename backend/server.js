@@ -470,7 +470,7 @@ const dashboardHtml = String.raw`<!doctype html>
               <th><button class="sort-button" data-sort-key="low_temperature_display" data-sort-type="number">Settur l&aacute;gur hiti (C) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="high_temperature_display" data-sort-type="number">Settur h&aacute;r hiti (C) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="high_humidity_display" data-sort-type="number">Settur h&aacute;r raki (%) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="telemetry_interval_display" data-sort-type="number">Uppf&aelig;rslubil (s) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="telemetry_interval_display" data-sort-type="number">Uppf&aelig;rslu-t&iacute;&eth;ni (s) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="alarm_state" data-sort-type="text">Vi&eth;v&ouml;run <span class="sort-indicator"></span></button></th>
               <th id="saveHeader">Vista</th>
             </tr>
@@ -663,7 +663,7 @@ const dashboardHtml = String.raw`<!doctype html>
         columnSetLowTemp: "Settur lágur\nhiti (C)",
         columnSetHighTemp: "Settur hár\nhiti (C)",
         columnSetHighHumidity: "Settur hár\nraki (%)",
-        columnRefreshInterval: "Uppfærslubil\n(s)",
+        columnRefreshInterval: "Uppfærslu-\ntíðni (s)",
         columnAlarm: "Viðvörun",
         columnTime: "Tími",
         columnCleared: "Hreinsað",
