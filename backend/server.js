@@ -356,7 +356,7 @@ const dashboardHtml = String.raw`<!doctype html>
   <header>
     <h1 id="pageTitle">Snjalli H&uacute;sv&ouml;r&eth;urinn</h1>
     <nav class="nav-links" aria-label="Main pages">
-      <a id="devicesLink" href="/dashboard">T&aelig;ki</a>
+      <a id="devicesLink" href="/dashboard">T&aelig;kjaskr&aacute;</a>
       <a id="alarmsLink" href="/alarms">Vi&eth;v&ouml;runarskr&aacute;</a>
     </nav>
     <div class="toolbar">
@@ -516,7 +516,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const translations = {
       is: {
         pageTitle: "Snjalli Húsvörðurinn",
-        devices: "Tæki",
+        devices: "Tækjaskrá",
         alarms: "Viðvörunarskrá",
         emailPlaceholder: "Netfang",
         passwordPlaceholder: "Lykilorð",
