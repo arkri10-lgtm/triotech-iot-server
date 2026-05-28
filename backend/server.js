@@ -668,7 +668,7 @@ const dashboardHtml = String.raw`<!doctype html>
         const indicator = button.querySelector(".sort-indicator");
         const active = button.dataset.sortKey === sortState.key;
         button.setAttribute("aria-sort", active ? (sortState.direction === "asc" ? "ascending" : "descending") : "none");
-        indicator.textContent = active ? (sortState.direction === "asc" ? "^" : "v") : "";
+        indicator.textContent = active ? (sortState.direction === "asc" ? "▲" : "▼") : "";
       });
     }
 
@@ -745,7 +745,7 @@ const dashboardHtml = String.raw`<!doctype html>
         const indicator = button.querySelector(".sort-indicator");
         const active = button.dataset.sortKey === alarmSortState.key;
         button.setAttribute("aria-sort", active ? (alarmSortState.direction === "asc" ? "ascending" : "descending") : "none");
-        indicator.textContent = active ? (alarmSortState.direction === "asc" ? "^" : "v") : "";
+        indicator.textContent = active ? (alarmSortState.direction === "asc" ? "▲" : "▼") : "";
       });
     }
 
