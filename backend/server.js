@@ -1276,18 +1276,22 @@ function apiTokenUser() {
   return {
     id: "api-token-admin",
     email: "api-token-admin",
-    role: "admin",
+    role: "super_admin",
     customer_id: null,
     must_change_password: false
   };
 }
 
+function isAdminRole(role) {
+  return role === "super_admin" || role === "admin";
+}
+
 function isAdminUser(user) {
-  return Boolean(user && user.role === "admin");
+  return Boolean(user && isAdminRole(user.role));
 }
 
 function subscriptionFromRow(row) {
-  if (!row || row.role === "admin") {
+  if (!row || isAdminRole(row.role)) {
     return null;
   }
 
@@ -1833,7 +1837,7 @@ async function seedInitialAuthData() {
         must_change_password,
         active
       )
-      VALUES ($1, NULL, $2, $3, 'admin', true, true)
+      VALUES ($1, NULL, $2, $3, 'super_admin', true, true)
     `,
     [crypto.randomUUID(), email, hashPassword(ADMIN_INITIAL_PASSWORD)]
   );
