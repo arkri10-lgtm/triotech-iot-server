@@ -366,7 +366,7 @@ const dashboardHtml = String.raw`<!doctype html>
       <input id="passwordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Lykilor&eth;">
       <button id="loginButton">Innskr&aacute;</button>
       <button id="logoutButton" hidden>&Uacute;tskr&aacute;</button>
-      <button id="refresh">S&aelig;kja</button>
+      <button id="refresh">Endursetja</button>
     </div>
   </header>
 
@@ -405,11 +405,11 @@ const dashboardHtml = String.raw`<!doctype html>
               <th><button class="sort-button" data-sort-key="temperature" data-sort-type="number">Hiti (C) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="humidity" data-sort-type="number">Raki (%) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="power_source" data-sort-type="text">Aflgjafi <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="ble_power_monitor_installed" data-sort-type="text">Auka aflvakt <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="ble_power_monitor_connection" data-sort-type="text">Auka aflvakt sta&eth;a <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="low_temperature_display" data-sort-type="number">SET l&aacute;gur hiti (C) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="high_temperature_display" data-sort-type="number">SET h&aacute;r hiti (C) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="high_humidity_display" data-sort-type="number">SET h&aacute;r raki (%) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="ble_power_monitor_installed" data-sort-type="text">Auka aflvaki <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="ble_power_monitor_connection" data-sort-type="text">Auka aflvaki sta&eth;a <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="low_temperature_display" data-sort-type="number">Settur l&aacute;gur hiti (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="high_temperature_display" data-sort-type="number">Settur h&aacute;r hiti (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="high_humidity_display" data-sort-type="number">Settur h&aacute;r raki (%) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="telemetry_interval_display" data-sort-type="number">Uppf&aelig;rslubil (s) <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="alarm_state" data-sort-type="text">Vi&eth;v&ouml;run <span class="sort-indicator"></span></button></th>
               <th id="saveHeader">Vista</th>
@@ -522,7 +522,7 @@ const dashboardHtml = String.raw`<!doctype html>
         passwordPlaceholder: "Lykilorð",
         login: "Innskrá",
         logout: "Útskrá",
-        refresh: "Sækja",
+        refresh: "Endursetja",
         apiLabel: "API:",
         wsLabel: "WebSocket:",
         devicesLabel: "Tæki:",
@@ -565,11 +565,11 @@ const dashboardHtml = String.raw`<!doctype html>
         columnTemperature: "Hiti (C)",
         columnHumidity: "Raki (%)",
         columnPower: "Aflgjafi",
-        columnExtraPowerMonitor: "Auka aflvakt",
-        columnExtraPowerMonitorConnection: "Auka aflvakt staða",
-        columnSetLowTemp: "SET lágur hiti (C)",
-        columnSetHighTemp: "SET hár hiti (C)",
-        columnSetHighHumidity: "SET hár raki (%)",
+        columnExtraPowerMonitor: "Auka aflvaki",
+        columnExtraPowerMonitorConnection: "Auka aflvaki staða",
+        columnSetLowTemp: "Settur lágur hiti (C)",
+        columnSetHighTemp: "Settur hár hiti (C)",
+        columnSetHighHumidity: "Settur hár raki (%)",
         columnRefreshInterval: "Uppfærslubil (s)",
         columnAlarm: "Viðvörun",
         columnTime: "Tími",
