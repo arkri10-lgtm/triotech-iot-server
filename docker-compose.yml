@@ -33,6 +33,10 @@ services:
       DEVICE_API_TOKEN: ${DEVICE_API_TOKEN}
       DATABASE_URL: postgres://triotech_admin:${POSTGRES_PASSWORD}@postgres:5432/triotech
       DEVICE_OFFLINE_GRACE_MS: ${DEVICE_OFFLINE_GRACE_MS:-120000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
+      DEFAULT_CUSTOMER_ID: ${DEFAULT_CUSTOMER_ID:-customer-1}
+      DEFAULT_CUSTOMER_NAME: ${DEFAULT_CUSTOMER_NAME:-Customer 1}
     volumes:
       - ./backend:/app
     ports:

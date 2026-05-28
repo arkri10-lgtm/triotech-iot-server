@@ -14,6 +14,11 @@ const API_TOKEN = process.env.API_TOKEN || "";
 const DEVICE_API_TOKEN = process.env.DEVICE_API_TOKEN || "";
 const DEVICE_OFFLINE_GRACE_MS = Number(process.env.DEVICE_OFFLINE_GRACE_MS || 120000);
 const DATABASE_URL = process.env.DATABASE_URL || "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
+const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
+const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "customer-1";
+const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
+const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 
@@ -25,10 +30,11 @@ const mqttClient = mqtt.connect(process.env.MQTT_URL || "mqtt://emqx:1883", {
 
 const latestState = {};
 const devices = {};
+const deviceRegistry = {};
 const deviceContacts = {};
 const deviceSettings = {};
 let recentAlarms = [];
-const wsClients = new Set();
+const wsClients = new Map();
 const dashboardSessions = new Map();
 
 const dashboardHtml = String.raw`<!doctype html>
@@ -191,6 +197,31 @@ const dashboardHtml = String.raw`<!doctype html>
       width: min(520px, 70vw);
     }
 
+    .auth-input {
+      width: 220px;
+    }
+
+    .user-info {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .password-panel {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+      padding: 10px;
+      background: #fff8df;
+      border: 1px solid #f0ce84;
+      border-radius: 8px;
+    }
+
+    .password-panel strong {
+      color: var(--warn);
+    }
+
     .table-wrap {
       overflow: auto;
       background: var(--panel);
@@ -326,8 +357,11 @@ const dashboardHtml = String.raw`<!doctype html>
       <a id="alarmsLink" href="/alarms">Alarm log</a>
     </nav>
     <div class="toolbar">
-      <input id="tokenInput" type="password" autocomplete="off" placeholder="API token">
-      <button id="saveToken">Save</button>
+      <span id="userInfo" class="user-info"></span>
+      <input id="emailInput" class="auth-input" type="email" autocomplete="username" placeholder="Email">
+      <input id="passwordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Password">
+      <button id="loginButton">Login</button>
+      <button id="logoutButton" hidden>Logout</button>
       <button id="refresh">Refresh</button>
     </div>
   </header>
@@ -339,6 +373,14 @@ const dashboardHtml = String.raw`<!doctype html>
       <span>Devices: <strong id="deviceCount">0</strong></span>
       <span>Last update: <strong id="lastUpdate">never</strong></span>
     </div>
+
+    <section id="passwordChangeSection" class="password-panel" hidden>
+      <strong>Password change required</strong>
+      <input id="currentPasswordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Current password">
+      <input id="newPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="New password">
+      <button id="changePasswordButton">Change password</button>
+      <span id="passwordChangeStatus"></span>
+    </section>
 
     <section id="deviceSection">
       <div class="filter-bar">
@@ -403,11 +445,19 @@ const dashboardHtml = String.raw`<!doctype html>
   </main>
 
   <script>
-    const tokenInput = document.getElementById("tokenInput");
-    const saveToken = document.getElementById("saveToken");
+    const emailInput = document.getElementById("emailInput");
+    const passwordInput = document.getElementById("passwordInput");
+    const loginButton = document.getElementById("loginButton");
+    const logoutButton = document.getElementById("logoutButton");
     const refresh = document.getElementById("refresh");
     const apiStatus = document.getElementById("apiStatus");
     const wsStatus = document.getElementById("wsStatus");
+    const userInfo = document.getElementById("userInfo");
+    const passwordChangeSection = document.getElementById("passwordChangeSection");
+    const currentPasswordInput = document.getElementById("currentPasswordInput");
+    const newPasswordInput = document.getElementById("newPasswordInput");
+    const changePasswordButton = document.getElementById("changePasswordButton");
+    const passwordChangeStatus = document.getElementById("passwordChangeStatus");
     const deviceCount = document.getElementById("deviceCount");
     const lastUpdate = document.getElementById("lastUpdate");
     const deviceRows = document.getElementById("deviceRows");
@@ -430,7 +480,8 @@ const dashboardHtml = String.raw`<!doctype html>
     const alarmSortState = { key: "created_at", type: "time", direction: "desc" };
     let latestDevices = [];
     let latestAlarms = [];
-    tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
+    let currentUser = null;
+    emailInput.value = localStorage.getItem("snjallhus_email") || "";
     deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
     alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
 
@@ -439,12 +490,8 @@ const dashboardHtml = String.raw`<!doctype html>
     devicesLink.classList.toggle("active", !isAlarmPage);
     alarmsLink.classList.toggle("active", isAlarmPage);
 
-    function token() {
-      return localStorage.getItem("snjallhus_api_token") || "";
-    }
-
     function authHeaders() {
-      return { Authorization: "Bearer " + token() };
+      return {};
     }
 
     function fmt(value, suffix) {
@@ -940,13 +987,17 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function loadState() {
-      if (!token()) {
-        apiStatus.textContent = "missing token";
+      if (!currentUser) {
+        apiStatus.textContent = "not logged in";
         return;
       }
 
       try {
         const response = await fetch("/api/v1/state", { headers: authHeaders() });
+        if (response.status === 401) {
+          setCurrentUser(null);
+          throw new Error("not logged in");
+        }
         if (!response.ok) throw new Error("HTTP " + response.status);
         const data = await response.json();
         apiStatus.textContent = "connected";
@@ -956,20 +1007,103 @@ const dashboardHtml = String.raw`<!doctype html>
       }
     }
 
-    async function createSession() {
-      const response = await fetch("/api/v1/session", {
+    function setCurrentUser(user) {
+      currentUser = user;
+      const loggedIn = Boolean(user);
+
+      emailInput.hidden = loggedIn;
+      passwordInput.hidden = loggedIn;
+      loginButton.hidden = loggedIn;
+      logoutButton.hidden = !loggedIn;
+      userInfo.textContent = loggedIn ? user.email + " (" + user.role + ")" : "";
+      passwordChangeSection.hidden = !loggedIn || !user.must_change_password;
+
+      if (!loggedIn) {
+        apiStatus.textContent = "not logged in";
+        wsStatus.textContent = "not connected";
+        latestDevices = [];
+        latestAlarms = [];
+        renderDevices([]);
+        renderAlarms([]);
+      }
+    }
+
+    async function login() {
+      apiStatus.textContent = "logging in";
+      const response = await fetch("/api/v1/login", {
         method: "POST",
-        headers: authHeaders()
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: emailInput.value.trim(),
+          password: passwordInput.value
+        })
       });
 
-      if (!response.ok) throw new Error("Session HTTP " + response.status);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || ("HTTP " + response.status));
+      }
+
+      const body = await response.json();
+      localStorage.setItem("snjallhus_email", emailInput.value.trim());
+      passwordInput.value = "";
+      setCurrentUser(body.user);
+      await loadState();
+      connectWs();
+    }
+
+    async function logout() {
+      await fetch("/api/v1/logout", { method: "POST" }).catch(() => {});
+      if (ws) ws.close();
+      ws = null;
+      setCurrentUser(null);
+    }
+
+    async function loadMe() {
+      const response = await fetch("/api/v1/me");
+
+      if (!response.ok) {
+        setCurrentUser(null);
+        return;
+      }
+
+      const body = await response.json();
+      setCurrentUser(body.user);
+      await loadState();
+      connectWs();
+    }
+
+    async function changePassword() {
+      passwordChangeStatus.textContent = "saving";
+      const response = await fetch("/api/v1/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current_password: currentPasswordInput.value,
+          new_password: newPasswordInput.value
+        })
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || ("HTTP " + response.status));
+      }
+
+      const body = await response.json();
+      currentPasswordInput.value = "";
+      newPasswordInput.value = "";
+      passwordChangeStatus.textContent = "changed";
+      setCurrentUser(body.user);
+      setTimeout(() => {
+        passwordChangeStatus.textContent = "";
+      }, 1500);
     }
 
     function connectWs() {
       if (ws) ws.close();
 
-      if (!token()) {
-        wsStatus.textContent = "missing token";
+      if (!currentUser) {
+        wsStatus.textContent = "not logged in";
         return;
       }
 
@@ -990,7 +1124,9 @@ const dashboardHtml = String.raw`<!doctype html>
 
       ws.addEventListener("close", () => {
         wsStatus.textContent = "disconnected";
-        setTimeout(connectWs, 3000);
+        if (currentUser) {
+          setTimeout(connectWs, 3000);
+        }
       });
 
       ws.addEventListener("error", () => {
@@ -998,17 +1134,27 @@ const dashboardHtml = String.raw`<!doctype html>
       });
     }
 
-    saveToken.addEventListener("click", () => {
-      localStorage.setItem("snjallhus_api_token", tokenInput.value.trim());
-      createSession()
-        .then(() => {
-          loadState();
-          connectWs();
-        })
-        .catch((error) => {
-          apiStatus.textContent = error.message;
-          wsStatus.textContent = "not connected";
-        });
+    loginButton.addEventListener("click", () => {
+      login().catch((error) => {
+        apiStatus.textContent = error.message;
+        wsStatus.textContent = "not connected";
+      });
+    });
+
+    passwordInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        loginButton.click();
+      }
+    });
+
+    logoutButton.addEventListener("click", () => {
+      logout();
+    });
+
+    changePasswordButton.addEventListener("click", () => {
+      changePassword().catch((error) => {
+        passwordChangeStatus.textContent = error.message;
+      });
     });
 
     refresh.addEventListener("click", loadState);
@@ -1069,20 +1215,7 @@ const dashboardHtml = String.raw`<!doctype html>
       });
     });
 
-    if (token()) {
-      createSession()
-        .then(() => {
-          loadState();
-          connectWs();
-        })
-        .catch(() => {
-          loadState();
-          wsStatus.textContent = "press save";
-        });
-    } else {
-      apiStatus.textContent = "enter token";
-      wsStatus.textContent = "enter token";
-    }
+    loadMe();
   </script>
 </body>
 </html>`;
@@ -1091,25 +1224,113 @@ function isAuthorizedToken(value) {
   return Boolean(API_TOKEN) && value === API_TOKEN;
 }
 
-function createDashboardSession() {
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const parts = String(storedHash || "").split(":");
+
+  if (parts.length !== 3 || parts[0] !== "scrypt") {
+    return false;
+  }
+
+  const [, salt, hash] = parts;
+  const expected = Buffer.from(hash, "hex");
+  const actual = crypto.scryptSync(String(password), salt, expected.length);
+
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function publicUser(user) {
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    customer_id: user.customer_id,
+    must_change_password: Boolean(user.must_change_password)
+  };
+}
+
+function apiTokenUser() {
+  return {
+    id: "api-token-admin",
+    email: "api-token-admin",
+    role: "admin",
+    customer_id: null,
+    must_change_password: false
+  };
+}
+
+function isAdminUser(user) {
+  return Boolean(user && user.role === "admin");
+}
+
+function createDashboardSession(user) {
   const sessionId = crypto.randomUUID();
-  dashboardSessions.set(sessionId, Date.now() + 12 * 60 * 60 * 1000);
+  dashboardSessions.set(sessionId, {
+    user,
+    expiresAt: Date.now() + SESSION_MAX_AGE_MS
+  });
   return sessionId;
 }
 
-function isAuthorizedSession(sessionId) {
-  const expiresAt = dashboardSessions.get(sessionId);
+function getSessionUser(req) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const sessionId = cookies.snjallhus_session || "";
+  const session = dashboardSessions.get(sessionId);
 
-  if (!expiresAt) {
-    return false;
+  if (!session) {
+    return null;
   }
 
-  if (Date.now() > expiresAt) {
+  if (Date.now() > session.expiresAt) {
     dashboardSessions.delete(sessionId);
-    return false;
+    return null;
   }
 
-  return true;
+  return session.user;
+}
+
+function getRequestUser(req) {
+  const sessionUser = getSessionUser(req);
+
+  if (sessionUser) {
+    return sessionUser;
+  }
+
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+
+  if (isAuthorizedToken(token)) {
+    return apiTokenUser();
+  }
+
+  return null;
+}
+
+function shouldUseSecureCookie(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+  const host = String(req.headers.host || "").toLowerCase();
+  return forwardedProto === "https" || host === "api.snjallhus.com" || host.endsWith(".snjallhus.com");
+}
+
+function sessionCookie(sessionId, req) {
+  const secure = shouldUseSecureCookie(req) ? "; Secure" : "";
+  return `snjallhus_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure}`;
+}
+
+function clearSessionCookie(req) {
+  const secure = shouldUseSecureCookie(req) ? "; Secure" : "";
+  return `snjallhus_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`;
 }
 
 function parseCookies(cookieHeader = "") {
@@ -1125,12 +1346,14 @@ function parseCookies(cookieHeader = "") {
 }
 
 function checkAuth(req, reply, done) {
-  const auth = req.headers.authorization || "";
-  const token = auth.replace(/^Bearer\s+/i, "");
-  if (!isAuthorizedToken(token)) {
+  const user = getRequestUser(req);
+
+  if (!user) {
     reply.code(401).send({ error: "Unauthorized" });
     return;
   }
+
+  req.user = user;
   done();
 }
 
@@ -1324,13 +1547,14 @@ function getDeviceView(device, now = Date.now()) {
   };
 }
 
-function getDashboardState() {
+function getDashboardState(user = apiTokenUser()) {
   const now = Date.now();
+  const deviceViews = Object.values(devices).map((device) => getDeviceView(device, now));
 
   return {
-    raw: latestState,
-    devices: Object.values(devices).map((device) => getDeviceView(device, now)),
-    alarms: recentAlarms
+    raw: filterRawStateForUser(user),
+    devices: filterDevicesForUser(user, deviceViews),
+    alarms: filterAlarmsForUser(user, recentAlarms)
   };
 }
 
@@ -1339,6 +1563,38 @@ async function initDatabase() {
     app.log.warn("DATABASE_URL is not configured; alarm history will stay in memory only");
     return;
   }
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_users (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT REFERENCES customers(id),
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'customer',
+      must_change_password BOOLEAN NOT NULL DEFAULT true,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS devices (
+      device_id TEXT PRIMARY KEY,
+      customer_id TEXT REFERENCES customers(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS device_alarm_log (
@@ -1388,6 +1644,203 @@ async function initDatabase() {
     ON device_alarm_log (device_id, alarm_type)
     WHERE status = 'ACTIVE' AND cleared_at IS NULL
   `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS app_users_customer_idx
+    ON app_users (customer_id)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS devices_customer_idx
+    ON devices (customer_id)
+  `);
+
+  await db.query(
+    `
+      INSERT INTO customers (id, name)
+      VALUES ($1, $2)
+      ON CONFLICT (id) DO NOTHING
+    `,
+    [DEFAULT_CUSTOMER_ID, DEFAULT_CUSTOMER_NAME]
+  );
+
+  await db.query(
+    `
+      INSERT INTO devices (device_id, customer_id)
+      SELECT DISTINCT device_id, $1
+      FROM (
+        SELECT device_id FROM device_contact_info
+        UNION
+        SELECT device_id FROM device_desired_settings
+        UNION
+        SELECT device_id FROM device_alarm_log
+      ) existing_devices
+      WHERE device_id IS NOT NULL AND device_id <> ''
+      ON CONFLICT (device_id) DO NOTHING
+    `,
+    [DEFAULT_CUSTOMER_ID]
+  );
+}
+
+async function seedInitialAuthData() {
+  if (!db) {
+    return;
+  }
+
+  if (!ADMIN_EMAIL || !ADMIN_INITIAL_PASSWORD) {
+    app.log.warn("ADMIN_EMAIL or ADMIN_INITIAL_PASSWORD is not configured; no initial admin user was seeded");
+    return;
+  }
+
+  const email = normalizeEmail(ADMIN_EMAIL);
+  const existing = await db.query(
+    "SELECT id FROM app_users WHERE lower(email) = lower($1)",
+    [email]
+  );
+
+  if (existing.rowCount > 0) {
+    return;
+  }
+
+  await db.query(
+    `
+      INSERT INTO app_users (
+        id,
+        customer_id,
+        email,
+        password_hash,
+        role,
+        must_change_password,
+        active
+      )
+      VALUES ($1, NULL, $2, $3, 'admin', true, true)
+    `,
+    [crypto.randomUUID(), email, hashPassword(ADMIN_INITIAL_PASSWORD)]
+  );
+
+  app.log.info({ email }, "Seeded initial admin user");
+}
+
+async function refreshDeviceRegistry() {
+  if (!db) {
+    return deviceRegistry;
+  }
+
+  const result = await db.query(`
+    SELECT device_id, customer_id
+    FROM devices
+    ORDER BY device_id
+  `);
+
+  for (const key of Object.keys(deviceRegistry)) {
+    delete deviceRegistry[key];
+  }
+
+  for (const row of result.rows) {
+    deviceRegistry[row.device_id] = {
+      device_id: row.device_id,
+      customer_id: row.customer_id
+    };
+  }
+
+  return deviceRegistry;
+}
+
+async function ensureDeviceRegistered(deviceId) {
+  if (!isValidDeviceId(deviceId)) {
+    return null;
+  }
+
+  if (deviceRegistry[deviceId]) {
+    return deviceRegistry[deviceId];
+  }
+
+  if (!db) {
+    deviceRegistry[deviceId] = {
+      device_id: deviceId,
+      customer_id: DEFAULT_CUSTOMER_ID
+    };
+    return deviceRegistry[deviceId];
+  }
+
+  const result = await db.query(
+    `
+      INSERT INTO devices (device_id, customer_id)
+      VALUES ($1, $2)
+      ON CONFLICT (device_id)
+      DO UPDATE SET device_id = EXCLUDED.device_id
+      RETURNING device_id, customer_id
+    `,
+    [deviceId, DEFAULT_CUSTOMER_ID]
+  );
+
+  deviceRegistry[deviceId] = {
+    device_id: result.rows[0].device_id,
+    customer_id: result.rows[0].customer_id
+  };
+
+  return deviceRegistry[deviceId];
+}
+
+function topicDeviceId(topic) {
+  const parts = String(topic || "").split("/");
+
+  if (parts[0] === "snjalli" && parts[1]) {
+    return parts[1];
+  }
+
+  if (parts[0] === "alarm" && parts[1]) {
+    return parts[1];
+  }
+
+  return null;
+}
+
+function canAccessDevice(user, deviceId) {
+  if (!user || !deviceId) {
+    return false;
+  }
+
+  if (isAdminUser(user)) {
+    return true;
+  }
+
+  const registry = deviceRegistry[deviceId];
+  return Boolean(registry && registry.customer_id === user.customer_id);
+}
+
+function filterRawStateForUser(user) {
+  if (isAdminUser(user)) {
+    return latestState;
+  }
+
+  const filtered = {};
+
+  for (const [topic, value] of Object.entries(latestState)) {
+    const deviceId = topicDeviceId(topic);
+
+    if (canAccessDevice(user, deviceId)) {
+      filtered[topic] = value;
+    }
+  }
+
+  return filtered;
+}
+
+function filterDevicesForUser(user, deviceViews) {
+  if (isAdminUser(user)) {
+    return deviceViews;
+  }
+
+  return deviceViews.filter((device) => canAccessDevice(user, device.device_id));
+}
+
+function filterAlarmsForUser(user, alarms) {
+  if (isAdminUser(user)) {
+    return alarms;
+  }
+
+  return alarms.filter((alarm) => canAccessDevice(user, alarm.device_id));
 }
 
 async function refreshDeviceContacts() {
@@ -1616,6 +2069,7 @@ async function refreshRecentAlarms() {
   const result = await db.query(`
     SELECT
       id,
+      customer_id,
       device_id,
       alarm_type,
       alarm_value,
@@ -1637,6 +2091,7 @@ async function refreshRecentAlarms() {
 function addMemoryAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = null) {
   recentAlarms.unshift({
     id: `memory-${Date.now()}`,
+    customer_id: deviceRegistry[deviceId]?.customer_id || DEFAULT_CUSTOMER_ID,
     device_id: deviceId,
     alarm_type: alarmType,
     alarm_value: alarmValue,
@@ -1683,9 +2138,11 @@ async function addAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = n
     return;
   }
 
+  const customerId = deviceRegistry[deviceId]?.customer_id || DEFAULT_CUSTOMER_ID;
   const result = await db.query(
     `
       INSERT INTO device_alarm_log (
+        customer_id,
         device_id,
         alarm_type,
         alarm_value,
@@ -1694,18 +2151,19 @@ async function addAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = n
         status,
         message
       )
-      SELECT $1, $2, $3, $4, $5, 'ACTIVE', $6
+      SELECT $1, $2, $3, $4, $5, $6, 'ACTIVE', $7
       WHERE NOT EXISTS (
         SELECT 1
         FROM device_alarm_log
-        WHERE device_id = $1
-          AND alarm_type = $2
+        WHERE device_id = $2
+          AND alarm_type = $3
           AND status = 'ACTIVE'
           AND cleared_at IS NULL
       )
       RETURNING id
     `,
     [
+      customerId,
       deviceId,
       alarmType,
       alarmValue,
@@ -1800,13 +2258,12 @@ async function checkOfflineDevices() {
 }
 
 function publishWebSocketState() {
-  const message = JSON.stringify({
-    type: "state",
-    data: getDashboardState()
-  });
-
-  for (const socket of wsClients) {
+  for (const [socket, user] of wsClients) {
     if (socket.readyState === 1) {
+      const message = JSON.stringify({
+        type: "state",
+        data: getDashboardState(user)
+      });
       socket.send(message);
     }
   }
@@ -1822,6 +2279,7 @@ async function handleSnjalliMessage(topic, payloadText) {
   const deviceId = parts[1];
   const group = parts[2];
   const tag = parts.slice(3).join("/");
+  await ensureDeviceRegistered(deviceId);
   const device = getDevice(deviceId);
 
   device.last_seen = new Date().toISOString();
@@ -1939,23 +2397,166 @@ app.get("/alarms", async (req, reply) => {
   return reply.type("text/html").send(dashboardHtml);
 });
 
-app.post("/api/v1/session", { preHandler: checkAuth }, async (req, reply) => {
-  const sessionId = createDashboardSession();
+app.post("/api/v1/login", async (req, reply) => {
+  if (!db) {
+    reply.code(503);
+    return {
+      ok: false,
+      error: "Database login is not configured"
+    };
+  }
 
-  reply.header(
-    "Set-Cookie",
-    `snjallhus_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password || "");
+
+  if (!email || !password) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Email and password are required"
+    };
+  }
+
+  const result = await db.query(
+    `
+      SELECT id, customer_id, email, password_hash, role, must_change_password, active
+      FROM app_users
+      WHERE lower(email) = lower($1)
+      LIMIT 1
+    `,
+    [email]
   );
+
+  const row = result.rows[0];
+
+  if (!row || !row.active || !verifyPassword(password, row.password_hash)) {
+    reply.code(401);
+    return {
+      ok: false,
+      error: "Invalid email or password"
+    };
+  }
+
+  const user = {
+    id: row.id,
+    customer_id: row.customer_id,
+    email: row.email,
+    role: row.role,
+    must_change_password: row.must_change_password
+  };
+  const sessionId = createDashboardSession(user);
+
+  reply.header("Set-Cookie", sessionCookie(sessionId, req));
+
+  return {
+    ok: true,
+    user: publicUser(user)
+  };
+});
+
+app.post("/api/v1/logout", { preHandler: checkAuth }, async (req, reply) => {
+  const cookies = parseCookies(req.headers.cookie || "");
+
+  if (cookies.snjallhus_session) {
+    dashboardSessions.delete(cookies.snjallhus_session);
+  }
+
+  reply.header("Set-Cookie", clearSessionCookie(req));
 
   return { ok: true };
 });
 
-app.get("/api/v1/state", { preHandler: checkAuth }, async () => {
-  return getDashboardState();
+app.get("/api/v1/me", { preHandler: checkAuth }, async (req) => {
+  return {
+    ok: true,
+    user: publicUser(req.user)
+  };
 });
 
-app.get("/api/v1/devices", { preHandler: checkAuth }, async () => {
-  return getDashboardState().devices;
+app.post("/api/v1/change-password", { preHandler: checkAuth }, async (req, reply) => {
+  if (!db) {
+    reply.code(503);
+    return {
+      ok: false,
+      error: "Database login is not configured"
+    };
+  }
+
+  if (req.user.id === "api-token-admin") {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "The API token admin cannot change password"
+    };
+  }
+
+  const currentPassword = String(req.body?.current_password || "");
+  const newPassword = String(req.body?.new_password || "");
+
+  if (newPassword.length < 10) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "New password must be at least 10 characters"
+    };
+  }
+
+  const result = await db.query(
+    `
+      SELECT id, password_hash
+      FROM app_users
+      WHERE id = $1 AND active = true
+      LIMIT 1
+    `,
+    [req.user.id]
+  );
+
+  const row = result.rows[0];
+
+  if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+    reply.code(401);
+    return {
+      ok: false,
+      error: "Current password is not correct"
+    };
+  }
+
+  await db.query(
+    `
+      UPDATE app_users
+      SET password_hash = $2,
+          must_change_password = false,
+          updated_at = now()
+      WHERE id = $1
+    `,
+    [req.user.id, hashPassword(newPassword)]
+  );
+
+  req.user.must_change_password = false;
+
+  return {
+    ok: true,
+    user: publicUser(req.user)
+  };
+});
+
+app.post("/api/v1/session", { preHandler: checkAuth }, async (req, reply) => {
+  const sessionId = createDashboardSession(req.user);
+
+  reply.header("Set-Cookie", sessionCookie(sessionId, req));
+
+  return {
+    ok: true,
+    user: publicUser(req.user)
+  };
+});
+
+app.get("/api/v1/state", { preHandler: checkAuth }, async (req) => {
+  return getDashboardState(req.user);
+});
+
+app.get("/api/v1/devices", { preHandler: checkAuth }, async (req) => {
+  return getDashboardState(req.user).devices;
 });
 
 app.get("/api/v1/devices/:deviceId/settings/device", { preHandler: checkDeviceAuth }, async (req, reply) => {
@@ -1969,6 +2570,7 @@ app.get("/api/v1/devices/:deviceId/settings/device", { preHandler: checkDeviceAu
     };
   }
 
+  await ensureDeviceRegistered(deviceId);
   return desiredSettingsResponse(deviceId);
 });
 
@@ -1980,6 +2582,18 @@ app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async 
     return {
       ok: false,
       error: "Invalid device ID"
+    };
+  }
+
+  if (isAdminUser(req.user)) {
+    await ensureDeviceRegistered(deviceId);
+  }
+
+  if (!canAccessDevice(req.user, deviceId)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
     };
   }
 
@@ -2006,6 +2620,18 @@ app.patch("/api/v1/devices/:deviceId/settings", { preHandler: checkAuth }, async
     };
   }
 
+  if (isAdminUser(req.user)) {
+    await ensureDeviceRegistered(deviceId);
+  }
+
+  if (!canAccessDevice(req.user, deviceId)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
   try {
     const settings = await saveDeviceSettings(deviceId, req.body || {});
 
@@ -2025,11 +2651,20 @@ app.patch("/api/v1/devices/:deviceId/settings", { preHandler: checkAuth }, async
   }
 });
 
-app.get("/api/v1/alarms", { preHandler: checkAuth }, async () => {
-  return refreshRecentAlarms();
+app.get("/api/v1/alarms", { preHandler: checkAuth }, async (req) => {
+  const alarms = await refreshRecentAlarms();
+  return filterAlarmsForUser(req.user, alarms);
 });
 
-app.post("/api/v1/mqtt/publish", { preHandler: checkAuth }, async (req) => {
+app.post("/api/v1/mqtt/publish", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
   const { topic, message } = req.body || {};
 
   if (!topic || message === undefined) {
@@ -2049,18 +2684,18 @@ app.post("/api/v1/mqtt/publish", { preHandler: checkAuth }, async (req) => {
 });
 
 app.get("/api/v1/ws", { websocket: true }, (socket, req) => {
-  const cookies = parseCookies(req.headers.cookie || "");
+  const user = getSessionUser(req);
 
-  if (!isAuthorizedSession(cookies.snjallhus_session || "")) {
+  if (!user) {
     socket.close(1008, "Unauthorized");
     return;
   }
 
-  wsClients.add(socket);
+  wsClients.set(socket, user);
 
   socket.send(JSON.stringify({
     type: "state",
-    data: getDashboardState()
+    data: getDashboardState(user)
   }));
 
   socket.on("close", () => {
@@ -2076,6 +2711,8 @@ setInterval(() => {
 }, 10000);
 
 await initDatabase();
+await seedInitialAuthData();
+await refreshDeviceRegistry();
 await refreshDeviceContacts();
 await refreshDeviceSettings();
 await refreshRecentAlarms();
