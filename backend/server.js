@@ -359,11 +359,11 @@ const dashboardHtml = String.raw`<!doctype html>
         <table>
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Cleared</th>
-              <th>Device ID</th>
-              <th>Alarm</th>
-              <th>Topic</th>
+              <th><button class="sort-button" data-sort-key="created_at" data-sort-type="time">Time <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="cleared_at" data-sort-type="time">Cleared <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="device_id" data-sort-type="text">Device ID <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="alarm_type" data-sort-type="text">Alarm <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="source_topic" data-sort-type="text">Topic <span class="sort-indicator"></span></button></th>
             </tr>
           </thead>
           <tbody id="alarmRows">
@@ -394,7 +394,9 @@ const dashboardHtml = String.raw`<!doctype html>
     const pendingSettingEdits = new Map();
     const isAlarmPage = location.pathname.startsWith("/alarms");
     const sortState = { key: "device_id", type: "text", direction: "asc" };
+    const alarmSortState = { key: "created_at", type: "time", direction: "desc" };
     let latestDevices = [];
+    let latestAlarms = [];
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
 
     deviceSection.hidden = isAlarmPage;
@@ -533,11 +535,59 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     function updateSortIndicators() {
-      document.querySelectorAll(".sort-button").forEach((button) => {
+      document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
         const indicator = button.querySelector(".sort-indicator");
         const active = button.dataset.sortKey === sortState.key;
         button.setAttribute("aria-sort", active ? (sortState.direction === "asc" ? "ascending" : "descending") : "none");
         indicator.textContent = active ? (sortState.direction === "asc" ? "^" : "v") : "";
+      });
+    }
+
+    function alarmSortValue(alarm, key) {
+      return alarm[key];
+    }
+
+    function compareAlarms(a, b) {
+      const direction = alarmSortState.direction === "desc" ? -1 : 1;
+      const aValue = alarmSortValue(a, alarmSortState.key);
+      const bValue = alarmSortValue(b, alarmSortState.key);
+      const aEmpty = aValue === null || aValue === undefined || aValue === "";
+      const bEmpty = bValue === null || bValue === undefined || bValue === "";
+
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+
+      let result = 0;
+
+      if (alarmSortState.type === "number") {
+        result = Number(aValue) - Number(bValue);
+      } else if (alarmSortState.type === "time") {
+        result = Date.parse(aValue) - Date.parse(bValue);
+      } else {
+        result = String(aValue).localeCompare(String(bValue), undefined, {
+          numeric: true,
+          sensitivity: "base"
+        });
+      }
+
+      if (!Number.isFinite(result)) {
+        result = 0;
+      }
+
+      return result * direction;
+    }
+
+    function sortedAlarms(alarms) {
+      return [...alarms].sort(compareAlarms);
+    }
+
+    function updateAlarmSortIndicators() {
+      document.querySelectorAll("#alarmSection .sort-button").forEach((button) => {
+        const indicator = button.querySelector(".sort-indicator");
+        const active = button.dataset.sortKey === alarmSortState.key;
+        button.setAttribute("aria-sort", active ? (alarmSortState.direction === "asc" ? "ascending" : "descending") : "none");
+        indicator.textContent = active ? (alarmSortState.direction === "asc" ? "^" : "v") : "";
       });
     }
 
@@ -714,6 +764,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function renderAlarms(alarms) {
       alarmRows.textContent = "";
+      updateAlarmSortIndicators();
 
       if (!alarms.length) {
         const row = document.createElement("tr");
@@ -724,7 +775,7 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const alarm of alarms.slice(0, 100)) {
+      for (const alarm of sortedAlarms(alarms).slice(0, 100)) {
         const row = document.createElement("tr");
         cell(row, fmtTime(alarm.created_at));
         cell(row, fmtTime(alarm.cleared_at));
@@ -741,7 +792,9 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function renderState(state) {
       const devices = state.devices || [];
+      const alarms = state.alarms || [];
       latestDevices = devices;
+      latestAlarms = alarms;
       deviceCount.textContent = String(devices.length);
 
       if (!isAlarmPage && !isEditingContact()) {
@@ -749,7 +802,7 @@ const dashboardHtml = String.raw`<!doctype html>
       }
 
       if (isAlarmPage) {
-        renderAlarms(state.alarms || []);
+        renderAlarms(alarms);
       }
 
       lastUpdate.textContent = fmtClock(new Date());
@@ -829,7 +882,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     refresh.addEventListener("click", loadState);
 
-    document.querySelectorAll(".sort-button").forEach((button) => {
+    document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
       button.addEventListener("click", () => {
         const key = button.dataset.sortKey;
 
@@ -842,6 +895,22 @@ const dashboardHtml = String.raw`<!doctype html>
         }
 
         renderDevices(latestDevices);
+      });
+    });
+
+    document.querySelectorAll("#alarmSection .sort-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.sortKey;
+
+        if (alarmSortState.key === key) {
+          alarmSortState.direction = alarmSortState.direction === "asc" ? "desc" : "asc";
+        } else {
+          alarmSortState.key = key;
+          alarmSortState.type = button.dataset.sortType || "text";
+          alarmSortState.direction = alarmSortState.type === "time" ? "desc" : "asc";
+        }
+
+        renderAlarms(latestAlarms);
       });
     });
 
