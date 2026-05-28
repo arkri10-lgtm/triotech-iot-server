@@ -30,13 +30,29 @@ services:
       MQTT_USERNAME: ${MQTT_USERNAME}
       MQTT_PASSWORD: ${MQTT_PASSWORD}
       API_TOKEN: ${API_TOKEN}
+      DATABASE_URL: postgres://triotech_admin:${POSTGRES_PASSWORD}@postgres:5432/triotech
+      DEVICE_OFFLINE_GRACE_MS: ${DEVICE_OFFLINE_GRACE_MS:-120000}
     volumes:
       - ./backend:/app
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
       - emqx
+      - postgres
+  postgres:
+    image: postgres:16
+    container_name: triotech-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: triotech
+      POSTGRES_USER: triotech_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
 
 volumes:
   emqx_data:
   emqx_log:
+  postgres_data:

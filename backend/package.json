@@ -8,6 +8,7 @@
   "dependencies": {
     "fastify": "^5.0.0",
     "@fastify/websocket": "^11.0.0",
-    "mqtt": "^5.0.0"
+    "mqtt": "^5.0.0",
+    "pg": "^8.12.0"
   }
 }

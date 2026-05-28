@@ -2,14 +2,19 @@ import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import mqtt from "mqtt";
 import crypto from "node:crypto";
+import pg from "pg";
 
 const app = Fastify({ logger: true });
+const { Pool } = pg;
 
 await app.register(websocket);
 
 const PORT = Number(process.env.PORT || 3000);
 const API_TOKEN = process.env.API_TOKEN || "";
 const DEVICE_OFFLINE_GRACE_MS = Number(process.env.DEVICE_OFFLINE_GRACE_MS || 120000);
+const DATABASE_URL = process.env.DATABASE_URL || "";
+
+const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 
 const mqttClient = mqtt.connect(process.env.MQTT_URL || "mqtt://emqx:1883", {
   username: process.env.MQTT_USERNAME,
@@ -19,7 +24,7 @@ const mqttClient = mqtt.connect(process.env.MQTT_URL || "mqtt://emqx:1883", {
 
 const latestState = {};
 const devices = {};
-const alarmLog = [];
+let recentAlarms = [];
 const wsClients = new Set();
 const dashboardSessions = new Map();
 
@@ -253,9 +258,10 @@ const dashboardHtml = String.raw`<!doctype html>
           <thead>
             <tr>
               <th>Time</th>
+              <th>Cleared</th>
               <th>Device ID</th>
               <th>Alarm</th>
-              <th>Payload</th>
+              <th>Status</th>
               <th>Topic</th>
             </tr>
           </thead>
@@ -373,8 +379,8 @@ const dashboardHtml = String.raw`<!doctype html>
 
       if (!alarms.length) {
         const row = document.createElement("tr");
-        cell(row, "No active alarm events received.");
-        row.firstChild.colSpan = 5;
+        cell(row, "No alarm history received.");
+        row.firstChild.colSpan = 6;
         row.firstChild.className = "empty";
         alarmRows.appendChild(row);
         return;
@@ -383,9 +389,10 @@ const dashboardHtml = String.raw`<!doctype html>
       for (const alarm of alarms.slice(0, 100)) {
         const row = document.createElement("tr");
         cell(row, fmtTime(alarm.created_at));
+        cell(row, fmtTime(alarm.cleared_at));
         cell(row, alarm.device_id);
         cell(row, alarm.alarm_type);
-        cell(row, alarm.payload);
+        cell(row, badge(alarm.status || alarm.payload, alarm.status === "ACTIVE" ? "alarm" : "ok"));
         cell(row, alarm.source_topic);
         alarmRows.appendChild(row);
       }
@@ -611,21 +618,187 @@ function getDashboardState() {
   return {
     raw: latestState,
     devices: Object.values(devices).map((device) => getDeviceView(device, now)),
-    alarms: alarmLog
+    alarms: recentAlarms
   };
 }
 
-function addAlarmEvent(deviceId, alarmType, payload, topic) {
-  alarmLog.unshift({
+async function initDatabase() {
+  if (!db) {
+    app.log.warn("DATABASE_URL is not configured; alarm history will stay in memory only");
+    return;
+  }
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS device_alarm_log (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id TEXT,
+      device_id TEXT NOT NULL,
+      alarm_type TEXT NOT NULL,
+      alarm_value TEXT,
+      payload TEXT NOT NULL,
+      source_topic TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      cleared_at TIMESTAMPTZ
+    )
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS device_alarm_log_created_idx
+    ON device_alarm_log (created_at DESC)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS device_alarm_log_active_idx
+    ON device_alarm_log (device_id, alarm_type)
+    WHERE status = 'ACTIVE' AND cleared_at IS NULL
+  `);
+}
+
+async function refreshRecentAlarms() {
+  if (!db) {
+    return recentAlarms;
+  }
+
+  const result = await db.query(`
+    SELECT
+      id,
+      device_id,
+      alarm_type,
+      alarm_value,
+      payload,
+      source_topic,
+      status,
+      message,
+      created_at,
+      cleared_at
+    FROM device_alarm_log
+    ORDER BY created_at DESC, id DESC
+    LIMIT 100
+  `);
+
+  recentAlarms = result.rows;
+  return recentAlarms;
+}
+
+function addMemoryAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = null) {
+  recentAlarms.unshift({
+    id: `memory-${Date.now()}`,
     device_id: deviceId,
     alarm_type: alarmType,
+    alarm_value: alarmValue,
     payload,
     source_topic: topic,
-    created_at: new Date().toISOString()
+    status: payload,
+    message: null,
+    created_at: new Date().toISOString(),
+    cleared_at: null
   });
 
-  if (alarmLog.length > 100) {
-    alarmLog.length = 100;
+  if (recentAlarms.length > 100) {
+    recentAlarms.length = 100;
+  }
+}
+
+function currentAlarmValue(device, alarmType) {
+  if (alarmType === "high_temperature" || alarmType === "low_temperature") {
+    return device.temperature === null || device.temperature === undefined ? null : String(device.temperature);
+  }
+
+  if (alarmType === "high_humidity") {
+    return device.humidity === null || device.humidity === undefined ? null : String(device.humidity);
+  }
+
+  if (alarmType === "mains_lost") {
+    return device.power_source || null;
+  }
+
+  if (alarmType === "ble_power_lost") {
+    return device.ble_power_monitor_connection || null;
+  }
+
+  return null;
+}
+
+async function addAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = null) {
+  if (!db) {
+    addMemoryAlarmEvent(deviceId, alarmType, payload, topic, alarmValue);
+    return;
+  }
+
+  const result = await db.query(
+    `
+      INSERT INTO device_alarm_log (
+        device_id,
+        alarm_type,
+        alarm_value,
+        payload,
+        source_topic,
+        status,
+        message
+      )
+      SELECT $1, $2, $3, $4, $5, 'ACTIVE', $6
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM device_alarm_log
+        WHERE device_id = $1
+          AND alarm_type = $2
+          AND status = 'ACTIVE'
+          AND cleared_at IS NULL
+      )
+      RETURNING id
+    `,
+    [
+      deviceId,
+      alarmType,
+      alarmValue,
+      payload,
+      topic,
+      `${alarmType} alarm active`
+    ]
+  );
+
+  if (result.rowCount > 0) {
+    await refreshRecentAlarms();
+  }
+}
+
+async function clearAlarmEvent(deviceId, alarmType) {
+  if (!db) {
+    for (const alarm of recentAlarms) {
+      if (
+        alarm.device_id === deviceId &&
+        alarm.alarm_type === alarmType &&
+        alarm.status === "ACTIVE" &&
+        !alarm.cleared_at
+      ) {
+        alarm.status = "OK";
+        alarm.cleared_at = new Date().toISOString();
+        alarm.message = `${alarmType} alarm cleared`;
+        break;
+      }
+    }
+    return;
+  }
+
+  const result = await db.query(
+    `
+      UPDATE device_alarm_log
+      SET
+        status = 'OK',
+        cleared_at = now(),
+        message = $3
+      WHERE device_id = $1
+        AND alarm_type = $2
+        AND status = 'ACTIVE'
+        AND cleared_at IS NULL
+    `,
+    [deviceId, alarmType, `${alarmType} alarm cleared`]
+  );
+
+  if (result.rowCount > 0) {
+    await refreshRecentAlarms();
   }
 }
 
@@ -642,7 +815,7 @@ function publishWebSocketState() {
   }
 }
 
-function handleSnjalliMessage(topic, payloadText) {
+async function handleSnjalliMessage(topic, payloadText) {
   const parts = topic.split("/");
 
   if (parts.length < 3 || parts[0] !== "snjalli") {
@@ -701,10 +874,15 @@ function handleSnjalliMessage(topic, payloadText) {
   }
 
   if (group === "alarm" && tag && tag !== "state") {
+    const previousPayload = device.alarms[tag];
     device.alarms[tag] = payloadText;
 
-    if (payloadText === "ACTIVE") {
-      addAlarmEvent(deviceId, tag, payloadText, topic);
+    if (payloadText === "ACTIVE" && previousPayload !== "ACTIVE") {
+      await addAlarmEvent(deviceId, tag, payloadText, topic, currentAlarmValue(device, tag));
+    }
+
+    if (payloadText === "OK" && previousPayload === "ACTIVE") {
+      await clearAlarmEvent(deviceId, tag);
     }
   }
 }
@@ -720,13 +898,17 @@ mqttClient.on("connect", () => {
   ]);
 });
 
-mqttClient.on("message", (topic, payload) => {
+mqttClient.on("message", async (topic, payload) => {
   const payloadText = payload.toString();
 
   latestState[topic] = payloadText;
 
-  if (topic.startsWith("snjalli/")) {
-    handleSnjalliMessage(topic, payloadText);
+  try {
+    if (topic.startsWith("snjalli/")) {
+      await handleSnjalliMessage(topic, payloadText);
+    }
+  } catch (error) {
+    app.log.error({ error, topic }, "Failed to handle MQTT message");
   }
 
   publishWebSocketState();
@@ -767,7 +949,7 @@ app.get("/api/v1/devices", { preHandler: checkAuth }, async () => {
 });
 
 app.get("/api/v1/alarms", { preHandler: checkAuth }, async () => {
-  return alarmLog;
+  return refreshRecentAlarms();
 });
 
 app.post("/api/v1/mqtt/publish", { preHandler: checkAuth }, async (req) => {
@@ -810,5 +992,8 @@ app.get("/api/v1/ws", { websocket: true }, (socket, req) => {
 });
 
 setInterval(publishWebSocketState, 10000);
+
+await initDatabase();
+await refreshRecentAlarms();
 
 app.listen({ port: PORT, host: "0.0.0.0" });
