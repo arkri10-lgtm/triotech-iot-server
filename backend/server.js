@@ -261,12 +261,11 @@ const dashboardHtml = String.raw`<!doctype html>
               <th>Cleared</th>
               <th>Device ID</th>
               <th>Alarm</th>
-              <th>Status</th>
               <th>Topic</th>
             </tr>
           </thead>
           <tbody id="alarmRows">
-            <tr><td colspan="5" class="empty">No active alarm events received.</td></tr>
+            <tr><td colspan="5" class="empty">No alarm history received.</td></tr>
           </tbody>
         </table>
       </div>
@@ -304,7 +303,24 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!value) return "";
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return value;
-      return date.toLocaleString();
+      return date.toLocaleString("en-GB", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      });
+    }
+
+    function fmtClock(value) {
+      return value.toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      });
     }
 
     function fmtAge(seconds) {
@@ -380,7 +396,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!alarms.length) {
         const row = document.createElement("tr");
         cell(row, "No alarm history received.");
-        row.firstChild.colSpan = 6;
+        row.firstChild.colSpan = 5;
         row.firstChild.className = "empty";
         alarmRows.appendChild(row);
         return;
@@ -392,7 +408,6 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, fmtTime(alarm.cleared_at));
         cell(row, alarm.device_id);
         cell(row, alarm.alarm_type);
-        cell(row, badge(alarm.status || alarm.payload, alarm.status === "ACTIVE" ? "alarm" : "ok"));
         cell(row, alarm.source_topic);
         alarmRows.appendChild(row);
       }
@@ -401,7 +416,7 @@ const dashboardHtml = String.raw`<!doctype html>
     function renderState(state) {
       renderDevices(state.devices || []);
       renderAlarms(state.alarms || []);
-      lastUpdate.textContent = new Date().toLocaleTimeString();
+      lastUpdate.textContent = fmtClock(new Date());
     }
 
     async function loadState() {
