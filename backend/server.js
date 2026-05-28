@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import mqtt from "mqtt";
+import nodemailer from "nodemailer";
 import crypto from "node:crypto";
 import pg from "pg";
 
@@ -18,6 +19,13 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
 const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "customer-1";
 const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
+const ALERT_EMAIL_ENABLED = String(process.env.ALERT_EMAIL_ENABLED || "false").toLowerCase() === "true";
+const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_SECURE = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const ALLOWED_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace"]);
 const VALID_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace", "past_due", "suspended", "canceled"]);
@@ -40,6 +48,7 @@ const notificationEmailSettings = {};
 let recentAlarms = [];
 const wsClients = new Map();
 const dashboardSessions = new Map();
+let mailTransporter = null;
 
 const dashboardHtml = String.raw`<!doctype html>
 <html lang="en">
@@ -2650,6 +2659,113 @@ async function saveNotificationEmails(customerId, emails) {
   return getNotificationEmails(customerId);
 }
 
+function alertEmailIsConfigured() {
+  return Boolean(
+    ALERT_EMAIL_ENABLED &&
+    SMTP_HOST &&
+    SMTP_PORT &&
+    SMTP_USER &&
+    SMTP_PASS &&
+    SMTP_FROM
+  );
+}
+
+function getMailTransporter() {
+  if (!mailTransporter) {
+    mailTransporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS
+      }
+    });
+  }
+
+  return mailTransporter;
+}
+
+function alarmLabel(alarmType) {
+  return String(alarmType || "alarm").replace(/_/g, " ");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function sendAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic) {
+  const recipients = await getNotificationEmails(customerId);
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  if (!alertEmailIsConfigured()) {
+    app.log.warn({ customerId, deviceId, alarmType }, "Alarm email skipped because SMTP is not configured");
+    return;
+  }
+
+  const createdAt = new Date().toLocaleString("en-GB", {
+    timeZone: "Atlantic/Reykjavik",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const label = alarmLabel(alarmType);
+  const subject = `[Snjallhus] ${label} alarm on ${deviceId}`;
+  const text = [
+    "Snjallhus alarm",
+    "",
+    `Device: ${deviceId}`,
+    `Alarm: ${label}`,
+    `Status: ACTIVE`,
+    `Value: ${alarmValue ?? ""}`,
+    `Time: ${createdAt}`,
+    `Topic: ${topic}`,
+    "",
+    "This email was sent because a new active alarm was received."
+  ].join("\n");
+  const html = `
+    <h2>Snjallhus alarm</h2>
+    <p>A new active alarm was received.</p>
+    <table>
+      <tr><th align="left">Device</th><td>${escapeHtml(deviceId)}</td></tr>
+      <tr><th align="left">Alarm</th><td>${escapeHtml(label)}</td></tr>
+      <tr><th align="left">Status</th><td>ACTIVE</td></tr>
+      <tr><th align="left">Value</th><td>${escapeHtml(alarmValue ?? "")}</td></tr>
+      <tr><th align="left">Time</th><td>${escapeHtml(createdAt)}</td></tr>
+      <tr><th align="left">Topic</th><td>${escapeHtml(topic)}</td></tr>
+    </table>
+  `;
+
+  await getMailTransporter().sendMail({
+    from: SMTP_FROM,
+    to: SMTP_USER,
+    bcc: recipients,
+    subject,
+    text,
+    html
+  });
+
+  app.log.info({ customerId, deviceId, alarmType, recipients: recipients.length }, "Alarm email sent");
+}
+
+function queueAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic) {
+  sendAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic).catch((error) => {
+    app.log.error({ error, customerId, deviceId, alarmType }, "Failed to send alarm email");
+  });
+}
+
 function topicDeviceId(topic) {
   const parts = String(topic || "").split("/");
 
@@ -3001,12 +3117,14 @@ function currentAlarmValue(device, alarmType) {
 }
 
 async function addAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = null) {
+  const customerId = deviceRegistry[deviceId]?.customer_id || DEFAULT_CUSTOMER_ID;
+
   if (!db) {
     addMemoryAlarmEvent(deviceId, alarmType, payload, topic, alarmValue);
+    queueAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic);
     return;
   }
 
-  const customerId = deviceRegistry[deviceId]?.customer_id || DEFAULT_CUSTOMER_ID;
   const result = await db.query(
     `
       INSERT INTO device_alarm_log (
@@ -3043,6 +3161,7 @@ async function addAlarmEvent(deviceId, alarmType, payload, topic, alarmValue = n
 
   if (result.rowCount > 0) {
     await refreshRecentAlarms();
+    queueAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic);
   }
 }
 
