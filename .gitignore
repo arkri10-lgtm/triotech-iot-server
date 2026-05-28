@@ -7,3 +7,4 @@ backend/package-lock.json
 emqx_data/
 emqx_log/
 postgres_data/
+backups/
