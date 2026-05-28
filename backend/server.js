@@ -86,6 +86,28 @@ const dashboardHtml = String.raw`<!doctype html>
       flex-wrap: wrap;
     }
 
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .nav-links a {
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+
+    .nav-links a.active {
+      border-color: #3050c8;
+      color: #1f3fb0;
+      font-weight: 700;
+    }
+
     input {
       width: min(420px, 70vw);
       height: 34px;
@@ -239,11 +261,31 @@ const dashboardHtml = String.raw`<!doctype html>
       padding: 16px;
       color: var(--muted);
     }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    .with-unit {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .unit {
+      color: var(--muted);
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Snjallhus Device Overview</h1>
+    <nav class="nav-links" aria-label="Main pages">
+      <a id="devicesLink" href="/dashboard">Devices</a>
+      <a id="alarmsLink" href="/alarms">Alarm log</a>
+    </nav>
     <div class="toolbar">
       <input id="tokenInput" type="password" autocomplete="off" placeholder="API token">
       <button id="saveToken">Save</button>
@@ -259,36 +301,38 @@ const dashboardHtml = String.raw`<!doctype html>
       <span>Last update: <strong id="lastUpdate">never</strong></span>
     </div>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Device ID</th>
-            <th>Phone</th>
-            <th>Address</th>
-            <th>Status</th>
-            <th>Last seen</th>
-            <th>Temp</th>
-            <th>Humidity</th>
-            <th>Power</th>
-            <th>BLE installed</th>
-            <th>BLE connection</th>
-            <th>Low temp</th>
-            <th>High temp</th>
-            <th>High humidity</th>
-            <th>Interval</th>
-            <th>Alarm</th>
-            <th>Save</th>
-          </tr>
-        </thead>
-        <tbody id="deviceRows">
-          <tr><td colspan="16" class="empty">No device data loaded.</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <section id="deviceSection">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Device ID</th>
+              <th>Phone</th>
+              <th>Address</th>
+              <th>Status</th>
+              <th>Last seen</th>
+              <th>Temp (C)</th>
+              <th>Humidity (%)</th>
+              <th>Power</th>
+              <th>BLE installed</th>
+              <th>BLE connection</th>
+              <th>Low temp (C)</th>
+              <th>High temp (C)</th>
+              <th>High humidity (%)</th>
+              <th>Interval (s)</th>
+              <th>Alarm</th>
+              <th>Save</th>
+            </tr>
+          </thead>
+          <tbody id="deviceRows">
+            <tr><td colspan="16" class="empty">No device data loaded.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-    <section>
-      <h2>Latest Alarms</h2>
+    <section id="alarmSection">
+      <h2>Alarm Log</h2>
       <div class="table-wrap">
         <table>
           <thead>
@@ -318,11 +362,21 @@ const dashboardHtml = String.raw`<!doctype html>
     const lastUpdate = document.getElementById("lastUpdate");
     const deviceRows = document.getElementById("deviceRows");
     const alarmRows = document.getElementById("alarmRows");
+    const deviceSection = document.getElementById("deviceSection");
+    const alarmSection = document.getElementById("alarmSection");
+    const devicesLink = document.getElementById("devicesLink");
+    const alarmsLink = document.getElementById("alarmsLink");
 
     let ws = null;
     const pendingContactEdits = new Map();
     const pendingSettingEdits = new Map();
+    const isAlarmPage = location.pathname.startsWith("/alarms");
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
+
+    deviceSection.hidden = isAlarmPage;
+    alarmSection.hidden = !isAlarmPage;
+    devicesLink.classList.toggle("active", !isAlarmPage);
+    alarmsLink.classList.toggle("active", isAlarmPage);
 
     function token() {
       return localStorage.getItem("snjallhus_api_token") || "";
@@ -401,15 +455,25 @@ const dashboardHtml = String.raw`<!doctype html>
       return decimals === null ? String(Math.round(number)) : number.toFixed(decimals);
     }
 
-    function settingInput(value, activeValue, extraClass, decimals) {
+    function settingInput(value, activeValue, extraClass, decimals, unit) {
       const input = document.createElement("input");
       input.className = "row-input setting-input " + (extraClass || "");
       input.type = "text";
       input.inputMode = "decimal";
       input.maxLength = 4;
       input.value = formatSettingValue(value, decimals);
-      input.title = "Active value: " + fmt(activeValue, "");
+      input.title = "Active value: " + fmt(activeValue, unit ? " " + unit : "");
       return input;
+    }
+
+    function settingWithUnit(input, unit) {
+      const wrap = document.createElement("span");
+      const suffix = document.createElement("span");
+      wrap.className = "with-unit";
+      suffix.className = "unit";
+      suffix.textContent = unit;
+      wrap.append(input, suffix);
+      return wrap;
     }
 
     function setPendingContact(deviceId, field, value) {
@@ -512,10 +576,10 @@ const dashboardHtml = String.raw`<!doctype html>
         phoneInput.addEventListener("input", () => setPendingContact(device.device_id, "phone_number", phoneInput.value));
         addressInput.addEventListener("input", () => setPendingContact(device.device_id, "address", addressInput.value));
         const pendingSettings = pendingSettingEdits.get(device.device_id) || {};
-        const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input", 1);
-        const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input", 1);
-        const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input", 1);
-        const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input", null);
+        const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input", 1, "C");
+        const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input", 1, "C");
+        const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input", 1, "%");
+        const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input", null, "s");
         const rowSaveButton = document.createElement("button");
         rowSaveButton.className = "save-row";
         rowSaveButton.textContent = "Save";
@@ -537,10 +601,10 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, device.power_source);
         cell(row, device.ble_power_monitor_installed === true ? "yes" : (device.ble_power_monitor_installed === false ? "no" : ""));
         cell(row, device.ble_power_monitor_connection || "");
-        cell(row, lowInput);
-        cell(row, highInput);
-        cell(row, humidityInput);
-        cell(row, intervalInput);
+        cell(row, settingWithUnit(lowInput, "C"));
+        cell(row, settingWithUnit(highInput, "C"));
+        cell(row, settingWithUnit(humidityInput, "%"));
+        cell(row, settingWithUnit(intervalInput, "s"));
         cell(row, device.alarm_state ? badge(device.alarm_state, device.alarm_state === "ALARM" ? "alarm" : "ok") : "");
         cell(row, rowSaveButton);
         deviceRows.appendChild(row);
@@ -575,10 +639,17 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     function renderState(state) {
-      if (!isEditingContact()) {
-        renderDevices(state.devices || []);
+      const devices = state.devices || [];
+      deviceCount.textContent = String(devices.length);
+
+      if (!isAlarmPage && !isEditingContact()) {
+        renderDevices(devices);
       }
-      renderAlarms(state.alarms || []);
+
+      if (isAlarmPage) {
+        renderAlarms(state.alarms || []);
+      }
+
       lastUpdate.textContent = fmtClock(new Date());
     }
 
@@ -856,7 +927,7 @@ function applySettingsToDevice(deviceId, settings) {
   return device;
 }
 
-function getDeviceView(device, now = Date.now()) {
+function deviceOfflineInfo(device, now = Date.now()) {
   const lastSeenMs = device.last_seen ? Date.parse(device.last_seen) : NaN;
   const hasLastSeen = Number.isFinite(lastSeenMs);
   const secondsSinceSeen = hasLastSeen ? Math.max(0, Math.floor((now - lastSeenMs) / 1000)) : null;
@@ -864,7 +935,21 @@ function getDeviceView(device, now = Date.now()) {
     ? Math.max(0, device.telemetry_interval_sec * 1000)
     : 0;
   const offlineAfterMs = telemetryIntervalMs + DEVICE_OFFLINE_GRACE_MS;
-  const isOffline = !hasLastSeen || now - lastSeenMs > offlineAfterMs;
+
+  return {
+    hasLastSeen,
+    secondsSinceSeen,
+    offlineAfterMs,
+    isOffline: !hasLastSeen || now - lastSeenMs > offlineAfterMs
+  };
+}
+
+function deviceHasActiveAlarm(device) {
+  return Object.values(device.alarms || {}).includes("ACTIVE");
+}
+
+function getDeviceView(device, now = Date.now()) {
+  const { isOffline, secondsSinceSeen, offlineAfterMs } = deviceOfflineInfo(device, now);
 
   if (isOffline) {
     return {
@@ -1243,6 +1328,10 @@ function currentAlarmValue(device, alarmType) {
     return device.ble_power_monitor_connection || null;
   }
 
+  if (alarmType === "device_offline") {
+    return device.last_seen || null;
+  }
+
   return null;
 }
 
@@ -1327,6 +1416,47 @@ async function clearAlarmEvent(deviceId, alarmType) {
   }
 }
 
+async function checkOfflineDevices() {
+  const now = Date.now();
+  let changed = false;
+
+  for (const device of Object.values(devices)) {
+    const { hasLastSeen, isOffline } = deviceOfflineInfo(device, now);
+    const offlineAlarmActive = device.alarms.device_offline === "ACTIVE";
+
+    if (hasLastSeen && isOffline && !offlineAlarmActive) {
+      device.status = "offline";
+      device.alarm_state = "ALARM";
+      device.alarms.device_offline = "ACTIVE";
+
+      await addAlarmEvent(
+        device.device_id,
+        "device_offline",
+        "ACTIVE",
+        `backend/${device.device_id}/alarm/device_offline`,
+        currentAlarmValue(device, "device_offline")
+      );
+
+      changed = true;
+    }
+
+    if (!isOffline && offlineAlarmActive) {
+      device.alarms.device_offline = "OK";
+      await clearAlarmEvent(device.device_id, "device_offline");
+
+      if (!deviceHasActiveAlarm(device)) {
+        device.alarm_state = "OK";
+      }
+
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    publishWebSocketState();
+  }
+}
+
 function publishWebSocketState() {
   const message = JSON.stringify({
     type: "state",
@@ -1353,6 +1483,15 @@ async function handleSnjalliMessage(topic, payloadText) {
   const device = getDevice(deviceId);
 
   device.last_seen = new Date().toISOString();
+
+  if (device.alarms.device_offline === "ACTIVE") {
+    device.alarms.device_offline = "OK";
+    await clearAlarmEvent(deviceId, "device_offline");
+
+    if (!deviceHasActiveAlarm(device)) {
+      device.alarm_state = "OK";
+    }
+  }
 
   if (group === "status") {
     device.status = payloadText;
@@ -1451,6 +1590,10 @@ app.get("/", async (req, reply) => {
 });
 
 app.get("/dashboard", async (req, reply) => {
+  return reply.type("text/html").send(dashboardHtml);
+});
+
+app.get("/alarms", async (req, reply) => {
   return reply.type("text/html").send(dashboardHtml);
 });
 
@@ -1584,6 +1727,11 @@ app.get("/api/v1/ws", { websocket: true }, (socket, req) => {
 });
 
 setInterval(publishWebSocketState, 10000);
+setInterval(() => {
+  checkOfflineDevices().catch((error) => {
+    app.log.error({ error }, "Failed to check offline devices");
+  });
+}, 10000);
 
 await initDatabase();
 await refreshDeviceContacts();
