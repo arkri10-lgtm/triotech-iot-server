@@ -377,6 +377,12 @@ const dashboardHtml = String.raw`<!doctype html>
 
     <section id="alarmSection">
       <h2>Alarm Log</h2>
+      <div class="filter-bar">
+        <label for="alarmFilter">Filter</label>
+        <input id="alarmFilter" class="filter-input" type="search" autocomplete="off" placeholder="Search time, device ID, alarm, topic, status...">
+        <button id="clearAlarmFilter" type="button">Clear</button>
+        <span>Shown: <strong id="alarmCount">0</strong></span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -412,6 +418,9 @@ const dashboardHtml = String.raw`<!doctype html>
     const alarmsLink = document.getElementById("alarmsLink");
     const deviceFilter = document.getElementById("deviceFilter");
     const clearDeviceFilter = document.getElementById("clearDeviceFilter");
+    const alarmFilter = document.getElementById("alarmFilter");
+    const clearAlarmFilter = document.getElementById("clearAlarmFilter");
+    const alarmCount = document.getElementById("alarmCount");
 
     let ws = null;
     const pendingContactEdits = new Map();
@@ -423,6 +432,7 @@ const dashboardHtml = String.raw`<!doctype html>
     let latestAlarms = [];
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
     deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
+    alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
 
     deviceSection.hidden = isAlarmPage;
     alarmSection.hidden = !isAlarmPage;
@@ -649,6 +659,35 @@ const dashboardHtml = String.raw`<!doctype html>
       return [...alarms].sort(compareAlarms);
     }
 
+    function alarmFilterText(alarm) {
+      return [
+        alarm.created_at,
+        fmtTime(alarm.created_at),
+        alarm.cleared_at,
+        fmtTime(alarm.cleared_at),
+        alarm.device_id,
+        alarm.alarm_type,
+        alarm.alarm_value,
+        alarm.payload,
+        alarm.source_topic,
+        alarm.status,
+        alarm.message
+      ].map(searchText).join(" ");
+    }
+
+    function filteredAlarms(alarms) {
+      const terms = alarmFilter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+      if (!terms.length) {
+        return alarms;
+      }
+
+      return alarms.filter((alarm) => {
+        const haystack = alarmFilterText(alarm);
+        return terms.every((term) => haystack.includes(term));
+      });
+    }
+
     function updateAlarmSortIndicators() {
       document.querySelectorAll("#alarmSection .sort-button").forEach((button) => {
         const indicator = button.querySelector(".sort-indicator");
@@ -843,6 +882,10 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function renderAlarms(alarms) {
       alarmRows.textContent = "";
+      const visibleAlarms = filteredAlarms(alarms);
+      alarmCount.textContent = visibleAlarms.length === alarms.length
+        ? String(alarms.length)
+        : visibleAlarms.length + " / " + alarms.length;
       updateAlarmSortIndicators();
 
       if (!alarms.length) {
@@ -854,7 +897,16 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const alarm of sortedAlarms(alarms).slice(0, 100)) {
+      if (!visibleAlarms.length) {
+        const row = document.createElement("tr");
+        cell(row, "No alarms match the current filter.");
+        row.firstChild.colSpan = 5;
+        row.firstChild.className = "empty";
+        alarmRows.appendChild(row);
+        return;
+      }
+
+      for (const alarm of sortedAlarms(visibleAlarms).slice(0, 100)) {
         const row = document.createElement("tr");
         cell(row, fmtTime(alarm.created_at));
         cell(row, fmtTime(alarm.cleared_at));
@@ -971,6 +1023,18 @@ const dashboardHtml = String.raw`<!doctype html>
       localStorage.removeItem("snjallhus_device_filter");
       renderDevices(latestDevices);
       deviceFilter.focus();
+    });
+
+    alarmFilter.addEventListener("input", () => {
+      localStorage.setItem("snjallhus_alarm_filter", alarmFilter.value);
+      renderAlarms(latestAlarms);
+    });
+
+    clearAlarmFilter.addEventListener("click", () => {
+      alarmFilter.value = "";
+      localStorage.removeItem("snjallhus_alarm_filter");
+      renderAlarms(latestAlarms);
+      alarmFilter.focus();
     });
 
     document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
