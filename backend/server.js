@@ -25,6 +25,7 @@ const mqttClient = mqtt.connect(process.env.MQTT_URL || "mqtt://emqx:1883", {
 const latestState = {};
 const devices = {};
 const deviceContacts = {};
+const deviceSettings = {};
 let recentAlarms = [];
 const wsClients = new Set();
 const dashboardSessions = new Map();
@@ -115,6 +116,10 @@ const dashboardHtml = String.raw`<!doctype html>
       width: 260px;
     }
 
+    .setting-input {
+      width: 86px;
+    }
+
     .save-row {
       height: 30px;
       min-width: 58px;
@@ -152,7 +157,7 @@ const dashboardHtml = String.raw`<!doctype html>
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1620px;
+      min-width: 1760px;
     }
 
     th,
@@ -268,11 +273,12 @@ const dashboardHtml = String.raw`<!doctype html>
             <th>High temp</th>
             <th>High humidity</th>
             <th>Interval</th>
+            <th>Save settings</th>
             <th>Alarm</th>
           </tr>
         </thead>
         <tbody id="deviceRows">
-          <tr><td colspan="16" class="empty">No device data loaded.</td></tr>
+          <tr><td colspan="17" class="empty">No device data loaded.</td></tr>
         </tbody>
       </table>
     </div>
@@ -311,6 +317,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     let ws = null;
     const pendingContactEdits = new Map();
+    const pendingSettingEdits = new Map();
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
 
     function token() {
@@ -383,10 +390,26 @@ const dashboardHtml = String.raw`<!doctype html>
       return input;
     }
 
+    function settingInput(value, activeValue, extraClass) {
+      const input = document.createElement("input");
+      input.className = "row-input setting-input " + (extraClass || "");
+      input.type = "number";
+      input.step = "0.1";
+      input.value = value === null || value === undefined ? "" : String(value);
+      input.title = "Active value: " + fmt(activeValue, "");
+      return input;
+    }
+
     function setPendingContact(deviceId, field, value) {
       const pending = pendingContactEdits.get(deviceId) || {};
       pending[field] = value;
       pendingContactEdits.set(deviceId, pending);
+    }
+
+    function setPendingSetting(deviceId, field, value) {
+      const pending = pendingSettingEdits.get(deviceId) || {};
+      pending[field] = value;
+      pendingSettingEdits.set(deviceId, pending);
     }
 
     async function saveContact(deviceId, phoneInput, addressInput, button) {
@@ -424,6 +447,46 @@ const dashboardHtml = String.raw`<!doctype html>
       }
     }
 
+    async function saveSettings(deviceId, lowInput, highInput, humidityInput, intervalInput, button) {
+      button.disabled = true;
+      button.textContent = "Saving";
+      button.classList.remove("saved");
+
+      try {
+        const response = await fetch("/api/v1/devices/" + encodeURIComponent(deviceId) + "/settings", {
+          method: "PATCH",
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            low_temperature: lowInput.value,
+            high_temperature: highInput.value,
+            high_humidity: humidityInput.value,
+            telemetry_interval_sec: intervalInput.value
+          })
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || ("HTTP " + response.status));
+        }
+
+        pendingSettingEdits.delete(deviceId);
+        button.textContent = "Saved";
+        button.classList.add("saved");
+        setTimeout(() => {
+          button.textContent = "Save";
+          button.classList.remove("saved");
+        }, 1200);
+      } catch (error) {
+        button.textContent = "Error";
+        apiStatus.textContent = "settings save " + error.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     function renderDevices(devices) {
       deviceRows.textContent = "";
       deviceCount.textContent = String(devices.length);
@@ -431,7 +494,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!devices.length) {
         const row = document.createElement("tr");
         cell(row, "No devices received yet.");
-        row.firstChild.colSpan = 16;
+        row.firstChild.colSpan = 17;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
         return;
@@ -456,6 +519,20 @@ const dashboardHtml = String.raw`<!doctype html>
         phoneInput.addEventListener("input", () => setPendingContact(device.device_id, "phone_number", phoneInput.value));
         addressInput.addEventListener("input", () => setPendingContact(device.device_id, "address", addressInput.value));
         saveButton.addEventListener("click", () => saveContact(device.device_id, phoneInput, addressInput, saveButton));
+        const pendingSettings = pendingSettingEdits.get(device.device_id) || {};
+        const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input");
+        const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input");
+        const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input");
+        const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input");
+        intervalInput.step = "1";
+        const settingsButton = document.createElement("button");
+        settingsButton.className = "save-row";
+        settingsButton.textContent = "Save";
+        lowInput.addEventListener("input", () => setPendingSetting(device.device_id, "low_temperature", lowInput.value));
+        highInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_temperature", highInput.value));
+        humidityInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_humidity", humidityInput.value));
+        intervalInput.addEventListener("input", () => setPendingSetting(device.device_id, "telemetry_interval_sec", intervalInput.value));
+        settingsButton.addEventListener("click", () => saveSettings(device.device_id, lowInput, highInput, humidityInput, intervalInput, settingsButton));
 
         cell(row, device.device_id);
         cell(row, phoneInput);
@@ -468,10 +545,11 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, device.power_source);
         cell(row, device.ble_power_monitor_installed === true ? "yes" : (device.ble_power_monitor_installed === false ? "no" : ""));
         cell(row, device.ble_power_monitor_connection || "");
-        cell(row, fmt(device.low_temperature, " C"));
-        cell(row, fmt(device.high_temperature, " C"));
-        cell(row, fmt(device.high_humidity, " %"));
-        cell(row, fmt(device.telemetry_interval_sec, " s"));
+        cell(row, lowInput);
+        cell(row, highInput);
+        cell(row, humidityInput);
+        cell(row, intervalInput);
+        cell(row, settingsButton);
         cell(row, device.alarm_state ? badge(device.alarm_state, device.alarm_state === "ALARM" ? "alarm" : "ok") : "");
         deviceRows.appendChild(row);
       }
@@ -656,6 +734,15 @@ function numberOrNull(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 function textLimit(value, maxLength) {
   return String(value || "").trim().slice(0, maxLength);
 }
@@ -668,15 +755,31 @@ function contactForDevice(deviceId) {
   };
 }
 
+function settingsForDevice(deviceId) {
+  return deviceSettings[deviceId] || {
+    desired_low_temperature: null,
+    desired_high_temperature: null,
+    desired_high_humidity: null,
+    desired_telemetry_interval_sec: null,
+    settings_updated_at: null
+  };
+}
+
 function getDevice(deviceId) {
   if (!devices[deviceId]) {
     const contact = contactForDevice(deviceId);
+    const settings = settingsForDevice(deviceId);
 
     devices[deviceId] = {
       device_id: deviceId,
       phone_number: contact.phone_number,
       address: contact.address,
       contact_updated_at: contact.contact_updated_at,
+      desired_low_temperature: settings.desired_low_temperature,
+      desired_high_temperature: settings.desired_high_temperature,
+      desired_high_humidity: settings.desired_high_humidity,
+      desired_telemetry_interval_sec: settings.desired_telemetry_interval_sec,
+      settings_updated_at: settings.settings_updated_at,
       status: "unknown",
       last_seen: null,
       temperature: null,
@@ -703,6 +806,19 @@ function applyContactToDevice(deviceId, contact) {
   device.phone_number = contact.phone_number;
   device.address = contact.address;
   device.contact_updated_at = contact.contact_updated_at;
+
+  return device;
+}
+
+function applySettingsToDevice(deviceId, settings) {
+  deviceSettings[deviceId] = settings;
+
+  const device = getDevice(deviceId);
+  device.desired_low_temperature = settings.desired_low_temperature;
+  device.desired_high_temperature = settings.desired_high_temperature;
+  device.desired_high_humidity = settings.desired_high_humidity;
+  device.desired_telemetry_interval_sec = settings.desired_telemetry_interval_sec;
+  device.settings_updated_at = settings.settings_updated_at;
 
   return device;
 }
@@ -791,6 +907,18 @@ async function initDatabase() {
   `);
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS device_desired_settings (
+      device_id TEXT PRIMARY KEY,
+      low_temperature NUMERIC,
+      high_temperature NUMERIC,
+      high_humidity NUMERIC,
+      telemetry_interval_sec INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`
     CREATE INDEX IF NOT EXISTS device_alarm_log_created_idx
     ON device_alarm_log (created_at DESC)
   `);
@@ -870,6 +998,154 @@ async function saveDeviceContact(deviceId, phoneNumber, address) {
 
   applyContactToDevice(deviceId, savedContact);
   return savedContact;
+}
+
+async function refreshDeviceSettings() {
+  if (!db) {
+    return deviceSettings;
+  }
+
+  const result = await db.query(`
+    SELECT
+      device_id,
+      low_temperature,
+      high_temperature,
+      high_humidity,
+      telemetry_interval_sec,
+      updated_at
+    FROM device_desired_settings
+    ORDER BY device_id
+  `);
+
+  for (const key of Object.keys(deviceSettings)) {
+    delete deviceSettings[key];
+  }
+
+  for (const row of result.rows) {
+    applySettingsToDevice(row.device_id, {
+      desired_low_temperature: row.low_temperature === null ? null : Number(row.low_temperature),
+      desired_high_temperature: row.high_temperature === null ? null : Number(row.high_temperature),
+      desired_high_humidity: row.high_humidity === null ? null : Number(row.high_humidity),
+      desired_telemetry_interval_sec: row.telemetry_interval_sec === null ? null : Number(row.telemetry_interval_sec),
+      settings_updated_at: row.updated_at
+    });
+  }
+
+  return deviceSettings;
+}
+
+function validateDesiredSettings(settings) {
+  const errors = [];
+
+  if (settings.low_temperature !== null && (settings.low_temperature < -50 || settings.low_temperature > 80)) {
+    errors.push("Low temperature must be between -50 and 80");
+  }
+
+  if (settings.high_temperature !== null && (settings.high_temperature < -50 || settings.high_temperature > 80)) {
+    errors.push("High temperature must be between -50 and 80");
+  }
+
+  if (
+    settings.low_temperature !== null &&
+    settings.high_temperature !== null &&
+    settings.low_temperature >= settings.high_temperature
+  ) {
+    errors.push("Low temperature must be lower than high temperature");
+  }
+
+  if (settings.high_humidity !== null && (settings.high_humidity < 0 || settings.high_humidity > 100)) {
+    errors.push("High humidity must be between 0 and 100");
+  }
+
+  if (
+    settings.telemetry_interval_sec !== null &&
+    (!Number.isInteger(settings.telemetry_interval_sec) ||
+      settings.telemetry_interval_sec < 5 ||
+      settings.telemetry_interval_sec > 86400)
+  ) {
+    errors.push("Interval must be a whole number from 5 to 86400 seconds");
+  }
+
+  return errors;
+}
+
+async function saveDeviceSettings(deviceId, values) {
+  const settings = {
+    low_temperature: optionalNumber(values.low_temperature),
+    high_temperature: optionalNumber(values.high_temperature),
+    high_humidity: optionalNumber(values.high_humidity),
+    telemetry_interval_sec: optionalNumber(values.telemetry_interval_sec)
+  };
+
+  if (settings.telemetry_interval_sec !== null) {
+    settings.telemetry_interval_sec = Math.round(settings.telemetry_interval_sec);
+  }
+
+  const errors = validateDesiredSettings(settings);
+
+  if (errors.length > 0) {
+    const error = new Error(errors.join("; "));
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const desiredSettings = {
+    desired_low_temperature: settings.low_temperature,
+    desired_high_temperature: settings.high_temperature,
+    desired_high_humidity: settings.high_humidity,
+    desired_telemetry_interval_sec: settings.telemetry_interval_sec,
+    settings_updated_at: new Date().toISOString()
+  };
+
+  if (!db) {
+    applySettingsToDevice(deviceId, desiredSettings);
+    return desiredSettings;
+  }
+
+  const result = await db.query(
+    `
+      INSERT INTO device_desired_settings (
+        device_id,
+        low_temperature,
+        high_temperature,
+        high_humidity,
+        telemetry_interval_sec
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (device_id)
+      DO UPDATE SET
+        low_temperature = EXCLUDED.low_temperature,
+        high_temperature = EXCLUDED.high_temperature,
+        high_humidity = EXCLUDED.high_humidity,
+        telemetry_interval_sec = EXCLUDED.telemetry_interval_sec,
+        updated_at = now()
+      RETURNING
+        device_id,
+        low_temperature,
+        high_temperature,
+        high_humidity,
+        telemetry_interval_sec,
+        updated_at
+    `,
+    [
+      deviceId,
+      settings.low_temperature,
+      settings.high_temperature,
+      settings.high_humidity,
+      settings.telemetry_interval_sec
+    ]
+  );
+
+  const savedSettings = {
+    desired_low_temperature: result.rows[0].low_temperature === null ? null : Number(result.rows[0].low_temperature),
+    desired_high_temperature: result.rows[0].high_temperature === null ? null : Number(result.rows[0].high_temperature),
+    desired_high_humidity: result.rows[0].high_humidity === null ? null : Number(result.rows[0].high_humidity),
+    desired_telemetry_interval_sec: result.rows[0].telemetry_interval_sec === null ? null : Number(result.rows[0].telemetry_interval_sec),
+    settings_updated_at: result.rows[0].updated_at
+  };
+
+  applySettingsToDevice(deviceId, savedSettings);
+  return savedSettings;
 }
 
 async function refreshRecentAlarms() {
@@ -1187,6 +1463,36 @@ app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async 
   };
 });
 
+app.patch("/api/v1/devices/:deviceId/settings", { preHandler: checkAuth }, async (req, reply) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+
+  if (!/^[A-Za-z0-9_-]+$/.test(deviceId)) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Invalid device ID"
+    };
+  }
+
+  try {
+    const settings = await saveDeviceSettings(deviceId, req.body || {});
+
+    publishWebSocketState();
+
+    return {
+      ok: true,
+      device_id: deviceId,
+      ...settings
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
 app.get("/api/v1/alarms", { preHandler: checkAuth }, async () => {
   return refreshRecentAlarms();
 });
@@ -1234,6 +1540,7 @@ setInterval(publishWebSocketState, 10000);
 
 await initDatabase();
 await refreshDeviceContacts();
+await refreshDeviceSettings();
 await refreshRecentAlarms();
 
 app.listen({ port: PORT, host: "0.0.0.0" });
