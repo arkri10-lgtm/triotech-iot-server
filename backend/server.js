@@ -205,6 +205,28 @@ const dashboardHtml = String.raw`<!doctype html>
       letter-spacing: 0;
     }
 
+    .sort-button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: auto;
+      padding: 0;
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      text-transform: inherit;
+    }
+
+    .sort-indicator {
+      color: var(--muted);
+      min-width: 1ch;
+    }
+
     tr.alarm {
       background: var(--alarm);
     }
@@ -306,21 +328,21 @@ const dashboardHtml = String.raw`<!doctype html>
         <table>
           <thead>
             <tr>
-              <th>Device ID</th>
-              <th>Phone</th>
-              <th>Address</th>
-              <th>Status</th>
-              <th>Last seen</th>
-              <th>Temp (C)</th>
-              <th>Humidity (%)</th>
-              <th>Power</th>
-              <th>BLE installed</th>
-              <th>BLE connection</th>
-              <th>Low temp (C)</th>
-              <th>High temp (C)</th>
-              <th>High humidity (%)</th>
-              <th>Interval (s)</th>
-              <th>Alarm</th>
+              <th><button class="sort-button" data-sort-key="device_id" data-sort-type="text">Device ID <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="phone_number" data-sort-type="text">Phone <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="address" data-sort-type="text">Address <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="connection_state" data-sort-type="text">Status <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="last_seen" data-sort-type="time">Last seen <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="temperature" data-sort-type="number">Temp (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="humidity" data-sort-type="number">Humidity (%) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="power_source" data-sort-type="text">Power <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="ble_power_monitor_installed" data-sort-type="text">BLE installed <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="ble_power_monitor_connection" data-sort-type="text">BLE connection <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="low_temperature_display" data-sort-type="number">Low temp (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="high_temperature_display" data-sort-type="number">High temp (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="high_humidity_display" data-sort-type="number">High humidity (%) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="telemetry_interval_display" data-sort-type="number">Interval (s) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="alarm_state" data-sort-type="text">Alarm <span class="sort-indicator"></span></button></th>
               <th>Save</th>
             </tr>
           </thead>
@@ -371,6 +393,8 @@ const dashboardHtml = String.raw`<!doctype html>
     const pendingContactEdits = new Map();
     const pendingSettingEdits = new Map();
     const isAlarmPage = location.pathname.startsWith("/alarms");
+    const sortState = { key: "device_id", type: "text", direction: "asc" };
+    let latestDevices = [];
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
 
     deviceSection.hidden = isAlarmPage;
@@ -439,6 +463,82 @@ const dashboardHtml = String.raw`<!doctype html>
         td.textContent = value || "";
       }
       row.appendChild(td);
+    }
+
+    function displaySetting(device, desiredKey, activeKey) {
+      return device[desiredKey] ?? device[activeKey];
+    }
+
+    function sortValue(device, key) {
+      if (key === "low_temperature_display") {
+        return displaySetting(device, "desired_low_temperature", "low_temperature");
+      }
+
+      if (key === "high_temperature_display") {
+        return displaySetting(device, "desired_high_temperature", "high_temperature");
+      }
+
+      if (key === "high_humidity_display") {
+        return displaySetting(device, "desired_high_humidity", "high_humidity");
+      }
+
+      if (key === "telemetry_interval_display") {
+        return displaySetting(device, "desired_telemetry_interval_sec", "telemetry_interval_sec");
+      }
+
+      if (key === "connection_state") {
+        return device.connection_state || device.status;
+      }
+
+      if (key === "ble_power_monitor_installed") {
+        return device.ble_power_monitor_installed === true ? "yes" : (device.ble_power_monitor_installed === false ? "no" : "");
+      }
+
+      return device[key];
+    }
+
+    function compareDevices(a, b) {
+      const direction = sortState.direction === "desc" ? -1 : 1;
+      const aValue = sortValue(a, sortState.key);
+      const bValue = sortValue(b, sortState.key);
+      const aEmpty = aValue === null || aValue === undefined || aValue === "";
+      const bEmpty = bValue === null || bValue === undefined || bValue === "";
+
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+
+      let result = 0;
+
+      if (sortState.type === "number") {
+        result = Number(aValue) - Number(bValue);
+      } else if (sortState.type === "time") {
+        result = Date.parse(aValue) - Date.parse(bValue);
+      } else {
+        result = String(aValue).localeCompare(String(bValue), undefined, {
+          numeric: true,
+          sensitivity: "base"
+        });
+      }
+
+      if (!Number.isFinite(result)) {
+        result = 0;
+      }
+
+      return result * direction;
+    }
+
+    function sortedDevices(devices) {
+      return [...devices].sort(compareDevices);
+    }
+
+    function updateSortIndicators() {
+      document.querySelectorAll(".sort-button").forEach((button) => {
+        const indicator = button.querySelector(".sort-indicator");
+        const active = button.dataset.sortKey === sortState.key;
+        button.setAttribute("aria-sort", active ? (sortState.direction === "asc" ? "ascending" : "descending") : "none");
+        indicator.textContent = active ? (sortState.direction === "asc" ? "^" : "v") : "";
+      });
     }
 
     function contactInput(value, extraClass) {
@@ -550,6 +650,7 @@ const dashboardHtml = String.raw`<!doctype html>
     function renderDevices(devices) {
       deviceRows.textContent = "";
       deviceCount.textContent = String(devices.length);
+      updateSortIndicators();
 
       if (!devices.length) {
         const row = document.createElement("tr");
@@ -560,7 +661,7 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const device of devices) {
+      for (const device of sortedDevices(devices)) {
         const row = document.createElement("tr");
         if (device.alarm_state === "ALARM") {
           row.className = "alarm";
@@ -640,6 +741,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function renderState(state) {
       const devices = state.devices || [];
+      latestDevices = devices;
       deviceCount.textContent = String(devices.length);
 
       if (!isAlarmPage && !isEditingContact()) {
@@ -726,6 +828,22 @@ const dashboardHtml = String.raw`<!doctype html>
     });
 
     refresh.addEventListener("click", loadState);
+
+    document.querySelectorAll(".sort-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.sortKey;
+
+        if (sortState.key === key) {
+          sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
+        } else {
+          sortState.key = key;
+          sortState.type = button.dataset.sortType || "text";
+          sortState.direction = "asc";
+        }
+
+        renderDevices(latestDevices);
+      });
+    });
 
     if (token()) {
       createSession()
