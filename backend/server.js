@@ -45,7 +45,7 @@ const dashboardHtml = String.raw`<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Snjallhus Device Overview</title>
+  <title>Snjalli H&uacute;sv&ouml;r&eth;urinn</title>
   <style>
     :root {
       color-scheme: light;
@@ -354,94 +354,95 @@ const dashboardHtml = String.raw`<!doctype html>
 </head>
 <body>
   <header>
-    <h1>Snjallhus Device Overview</h1>
+    <h1 id="pageTitle">Snjalli H&uacute;sv&ouml;r&eth;urinn</h1>
     <nav class="nav-links" aria-label="Main pages">
-      <a id="devicesLink" href="/dashboard">Devices</a>
-      <a id="alarmsLink" href="/alarms">Alarm log</a>
+      <a id="devicesLink" href="/dashboard">T&aelig;ki</a>
+      <a id="alarmsLink" href="/alarms">Vi&eth;v&ouml;runarskr&aacute;</a>
     </nav>
     <div class="toolbar">
       <span id="userInfo" class="user-info"></span>
-      <input id="emailInput" class="auth-input" type="email" autocomplete="username" placeholder="Email">
-      <input id="passwordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Password">
-      <button id="loginButton">Login</button>
-      <button id="logoutButton" hidden>Logout</button>
-      <button id="refresh">Refresh</button>
+      <button id="languageToggle" type="button">EN</button>
+      <input id="emailInput" class="auth-input" type="email" autocomplete="username" placeholder="Netfang">
+      <input id="passwordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Lykilor&eth;">
+      <button id="loginButton">Innskr&aacute;</button>
+      <button id="logoutButton" hidden>&Uacute;tskr&aacute;</button>
+      <button id="refresh">S&aelig;kja</button>
     </div>
   </header>
 
   <main>
     <div class="status">
-      <span>API: <strong id="apiStatus">waiting</strong></span>
-      <span>WebSocket: <strong id="wsStatus">waiting</strong></span>
-      <span>Devices: <strong id="deviceCount">0</strong></span>
-      <span>Last update: <strong id="lastUpdate">never</strong></span>
+      <span><span id="apiLabel">API:</span> <strong id="apiStatus">b&iacute;&eth;</strong></span>
+      <span><span id="wsLabel">WebSocket:</span> <strong id="wsStatus">b&iacute;&eth;</strong></span>
+      <span><span id="deviceCountLabel">T&aelig;ki:</span> <strong id="deviceCount">0</strong></span>
+      <span><span id="lastUpdateLabel">S&iacute;&eth;asta uppf&aelig;rsla:</span> <strong id="lastUpdate">aldrei</strong></span>
     </div>
 
     <section id="passwordChangeSection" class="password-panel" hidden>
-      <strong>Password change required</strong>
-      <input id="currentPasswordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Current password">
-      <input id="newPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="New password">
-      <input id="confirmPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="Confirm new password">
-      <button id="changePasswordButton">Change password</button>
+      <strong id="passwordChangeTitle">Breyta &thorn;arf lykilor&eth;i</strong>
+      <input id="currentPasswordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="N&uacute;verandi lykilor&eth;">
+      <input id="newPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="N&yacute;tt lykilor&eth;">
+      <input id="confirmPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="Sta&eth;festa n&yacute;tt lykilor&eth;">
+      <button id="changePasswordButton">Breyta lykilor&eth;i</button>
       <span id="passwordChangeStatus"></span>
     </section>
 
     <section id="deviceSection">
       <div class="filter-bar">
-        <label for="deviceFilter">Filter</label>
-        <input id="deviceFilter" class="filter-input" type="search" autocomplete="off" placeholder="Search device ID, address, phone, status, power, alarm...">
-        <button id="clearDeviceFilter" type="button">Clear</button>
+        <label id="deviceFilterLabel" for="deviceFilter">S&iacute;a</label>
+        <input id="deviceFilter" class="filter-input" type="search" autocomplete="off" placeholder="Leita a&eth; t&aelig;ki, heimilisfangi, s&iacute;ma, st&ouml;&eth;u, afli, vi&eth;v&ouml;run...">
+        <button id="clearDeviceFilter" type="button">Hreinsa</button>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th><button class="sort-button" data-sort-key="device_id" data-sort-type="text">Device ID <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="phone_number" data-sort-type="text">Phone <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="address" data-sort-type="text">Address <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="connection_state" data-sort-type="text">Status <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="last_seen" data-sort-type="time">Last seen <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="temperature" data-sort-type="number">Temp (C) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="humidity" data-sort-type="number">Humidity (%) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="power_source" data-sort-type="text">Power <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="ble_power_monitor_installed" data-sort-type="text">BLE installed <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="ble_power_monitor_connection" data-sort-type="text">BLE connection <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="low_temperature_display" data-sort-type="number">Low temp (C) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="high_temperature_display" data-sort-type="number">High temp (C) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="high_humidity_display" data-sort-type="number">High humidity (%) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="telemetry_interval_display" data-sort-type="number">Interval (s) <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="alarm_state" data-sort-type="text">Alarm <span class="sort-indicator"></span></button></th>
-              <th>Save</th>
+              <th><button class="sort-button" data-sort-key="device_id" data-sort-type="text">T&aelig;ki <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="phone_number" data-sort-type="text">S&iacute;mi <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="address" data-sort-type="text">Heimilisfang <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="connection_state" data-sort-type="text">Sta&eth;a <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="last_seen" data-sort-type="time">S&iacute;&eth;ast s&eacute;&eth; <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="temperature" data-sort-type="number">Hiti (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="humidity" data-sort-type="number">Raki (%) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="power_source" data-sort-type="text">Aflgjafi <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="ble_power_monitor_installed" data-sort-type="text">Auka aflvakt <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="ble_power_monitor_connection" data-sort-type="text">Auka aflvakt sta&eth;a <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="low_temperature_display" data-sort-type="number">SET l&aacute;gur hiti (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="high_temperature_display" data-sort-type="number">SET h&aacute;r hiti (C) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="high_humidity_display" data-sort-type="number">SET h&aacute;r raki (%) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="telemetry_interval_display" data-sort-type="number">Uppf&aelig;rslubil (s) <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="alarm_state" data-sort-type="text">Vi&eth;v&ouml;run <span class="sort-indicator"></span></button></th>
+              <th id="saveHeader">Vista</th>
             </tr>
           </thead>
           <tbody id="deviceRows">
-            <tr><td colspan="16" class="empty">No device data loaded.</td></tr>
+            <tr><td colspan="16" class="empty">Engin t&aelig;kjag&ouml;gn s&oacute;tt.</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
     <section id="alarmSection">
-      <h2>Alarm Log</h2>
+      <h2 id="alarmTitle">Vi&eth;v&ouml;runarskr&aacute;</h2>
       <div class="filter-bar">
-        <label for="alarmFilter">Filter</label>
-        <input id="alarmFilter" class="filter-input" type="search" autocomplete="off" placeholder="Search time, device ID, alarm, topic, status...">
-        <button id="clearAlarmFilter" type="button">Clear</button>
-        <span>Shown: <strong id="alarmCount">0</strong></span>
+        <label id="alarmFilterLabel" for="alarmFilter">S&iacute;a</label>
+        <input id="alarmFilter" class="filter-input" type="search" autocomplete="off" placeholder="Leita a&eth; t&iacute;ma, t&aelig;ki, vi&eth;v&ouml;run, topic, st&ouml;&eth;u...">
+        <button id="clearAlarmFilter" type="button">Hreinsa</button>
+        <span><span id="shownLabel">S&yacute;nt:</span> <strong id="alarmCount">0</strong></span>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th><button class="sort-button" data-sort-key="created_at" data-sort-type="time">Time <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="cleared_at" data-sort-type="time">Cleared <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="device_id" data-sort-type="text">Device ID <span class="sort-indicator"></span></button></th>
-              <th><button class="sort-button" data-sort-key="alarm_type" data-sort-type="text">Alarm <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="created_at" data-sort-type="time">T&iacute;mi <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="cleared_at" data-sort-type="time">Hreinsa&eth; <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="device_id" data-sort-type="text">T&aelig;ki <span class="sort-indicator"></span></button></th>
+              <th><button class="sort-button" data-sort-key="alarm_type" data-sort-type="text">Vi&eth;v&ouml;run <span class="sort-indicator"></span></button></th>
               <th><button class="sort-button" data-sort-key="source_topic" data-sort-type="text">Topic <span class="sort-indicator"></span></button></th>
             </tr>
           </thead>
           <tbody id="alarmRows">
-            <tr><td colspan="5" class="empty">No alarm history received.</td></tr>
+            <tr><td colspan="5" class="empty">Engin vi&eth;v&ouml;runarsaga hefur borist.</td></tr>
           </tbody>
         </table>
       </div>
@@ -453,11 +454,18 @@ const dashboardHtml = String.raw`<!doctype html>
     const passwordInput = document.getElementById("passwordInput");
     const loginButton = document.getElementById("loginButton");
     const logoutButton = document.getElementById("logoutButton");
+    const languageToggle = document.getElementById("languageToggle");
     const refresh = document.getElementById("refresh");
     const apiStatus = document.getElementById("apiStatus");
     const wsStatus = document.getElementById("wsStatus");
+    const pageTitle = document.getElementById("pageTitle");
     const userInfo = document.getElementById("userInfo");
+    const apiLabel = document.getElementById("apiLabel");
+    const wsLabel = document.getElementById("wsLabel");
+    const deviceCountLabel = document.getElementById("deviceCountLabel");
+    const lastUpdateLabel = document.getElementById("lastUpdateLabel");
     const passwordChangeSection = document.getElementById("passwordChangeSection");
+    const passwordChangeTitle = document.getElementById("passwordChangeTitle");
     const currentPasswordInput = document.getElementById("currentPasswordInput");
     const newPasswordInput = document.getElementById("newPasswordInput");
     const confirmPasswordInput = document.getElementById("confirmPasswordInput");
@@ -471,10 +479,15 @@ const dashboardHtml = String.raw`<!doctype html>
     const alarmSection = document.getElementById("alarmSection");
     const devicesLink = document.getElementById("devicesLink");
     const alarmsLink = document.getElementById("alarmsLink");
+    const deviceFilterLabel = document.getElementById("deviceFilterLabel");
     const deviceFilter = document.getElementById("deviceFilter");
     const clearDeviceFilter = document.getElementById("clearDeviceFilter");
+    const saveHeader = document.getElementById("saveHeader");
+    const alarmTitle = document.getElementById("alarmTitle");
+    const alarmFilterLabel = document.getElementById("alarmFilterLabel");
     const alarmFilter = document.getElementById("alarmFilter");
     const clearAlarmFilter = document.getElementById("clearAlarmFilter");
+    const shownLabel = document.getElementById("shownLabel");
     const alarmCount = document.getElementById("alarmCount");
 
     let ws = null;
@@ -486,6 +499,7 @@ const dashboardHtml = String.raw`<!doctype html>
     let latestDevices = [];
     let latestAlarms = [];
     let currentUser = null;
+    let currentLanguage = localStorage.getItem("snjallhus_language") || "is";
     emailInput.value = localStorage.getItem("snjallhus_email") || "";
     deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
     alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
@@ -497,6 +511,214 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function authHeaders() {
       return {};
+    }
+
+    const translations = {
+      is: {
+        pageTitle: "Snjalli Húsvörðurinn",
+        devices: "Tæki",
+        alarms: "Viðvörunarskrá",
+        emailPlaceholder: "Netfang",
+        passwordPlaceholder: "Lykilorð",
+        login: "Innskrá",
+        logout: "Útskrá",
+        refresh: "Sækja",
+        apiLabel: "API:",
+        wsLabel: "WebSocket:",
+        devicesLabel: "Tæki:",
+        lastUpdateLabel: "Síðasta uppfærsla:",
+        waiting: "bíð",
+        never: "aldrei",
+        passwordChangeRequired: "Breyta þarf lykilorði",
+        currentPassword: "Núverandi lykilorð",
+        newPassword: "Nýtt lykilorð",
+        confirmPassword: "Staðfesta nýtt lykilorð",
+        changePassword: "Breyta lykilorði",
+        filter: "Sía",
+        clear: "Hreinsa",
+        deviceFilterPlaceholder: "Leita að tæki, heimilisfangi, síma, stöðu, afli, viðvörun...",
+        alarmFilterPlaceholder: "Leita að tíma, tæki, viðvörun, topic, stöðu...",
+        shown: "Sýnt:",
+        save: "Vista",
+        saving: "Vista",
+        saved: "Vistað",
+        error: "Villa",
+        connected: "tengt",
+        disconnected: "ótengt",
+        notConnected: "ekki tengt",
+        notLoggedIn: "ekki innskráð",
+        loggingIn: "skrái inn",
+        noDeviceData: "Engin tækjagögn sótt.",
+        noDevicesReceived: "Engin tæki hafa borist enn.",
+        noDeviceMatches: "Engin tæki passa við síuna.",
+        noAlarmHistory: "Engin viðvörunarsaga hefur borist.",
+        noAlarmMatches: "Engar viðvaranir passa við síuna.",
+        passwordMismatch: "Nýju lykilorðin passa ekki saman",
+        passwordChanged: "breytt",
+        activeValue: "Virkt gildi",
+        savePrefix: "vista ",
+        columnDeviceId: "Tæki",
+        columnPhone: "Sími",
+        columnAddress: "Heimilisfang",
+        columnStatus: "Staða",
+        columnLastSeen: "Síðast séð",
+        columnTemperature: "Hiti (C)",
+        columnHumidity: "Raki (%)",
+        columnPower: "Aflgjafi",
+        columnExtraPowerMonitor: "Auka aflvakt",
+        columnExtraPowerMonitorConnection: "Auka aflvakt staða",
+        columnSetLowTemp: "SET lágur hiti (C)",
+        columnSetHighTemp: "SET hár hiti (C)",
+        columnSetHighHumidity: "SET hár raki (%)",
+        columnRefreshInterval: "Uppfærslubil (s)",
+        columnAlarm: "Viðvörun",
+        columnTime: "Tími",
+        columnCleared: "Hreinsað",
+        columnTopic: "Topic"
+      },
+      en: {
+        pageTitle: "Snjalli Husvordurinn",
+        devices: "Devices",
+        alarms: "Alarm log",
+        emailPlaceholder: "Email",
+        passwordPlaceholder: "Password",
+        login: "Login",
+        logout: "Logout",
+        refresh: "Refresh",
+        apiLabel: "API:",
+        wsLabel: "WebSocket:",
+        devicesLabel: "Devices:",
+        lastUpdateLabel: "Last update:",
+        waiting: "waiting",
+        never: "never",
+        passwordChangeRequired: "Password change required",
+        currentPassword: "Current password",
+        newPassword: "New password",
+        confirmPassword: "Confirm new password",
+        changePassword: "Change password",
+        filter: "Filter",
+        clear: "Clear",
+        deviceFilterPlaceholder: "Search device ID, address, phone, status, power, alarm...",
+        alarmFilterPlaceholder: "Search time, device ID, alarm, topic, status...",
+        shown: "Shown:",
+        save: "Save",
+        saving: "Saving",
+        saved: "Saved",
+        error: "Error",
+        connected: "connected",
+        disconnected: "disconnected",
+        notConnected: "not connected",
+        notLoggedIn: "not logged in",
+        loggingIn: "logging in",
+        noDeviceData: "No device data loaded.",
+        noDevicesReceived: "No devices received yet.",
+        noDeviceMatches: "No devices match the current filter.",
+        noAlarmHistory: "No alarm history received.",
+        noAlarmMatches: "No alarms match the current filter.",
+        passwordMismatch: "New passwords do not match",
+        passwordChanged: "changed",
+        activeValue: "Active value",
+        savePrefix: "save ",
+        columnDeviceId: "Device ID",
+        columnPhone: "Phone",
+        columnAddress: "Address",
+        columnStatus: "Status",
+        columnLastSeen: "Last seen",
+        columnTemperature: "Temp (C)",
+        columnHumidity: "Humidity (%)",
+        columnPower: "Power",
+        columnExtraPowerMonitor: "Extra power monitor",
+        columnExtraPowerMonitorConnection: "Extra power monitor status",
+        columnSetLowTemp: "SET Low temp (C)",
+        columnSetHighTemp: "SET High temp (C)",
+        columnSetHighHumidity: "SET High humidity (%)",
+        columnRefreshInterval: "Refresh interval (s)",
+        columnAlarm: "Alarm",
+        columnTime: "Time",
+        columnCleared: "Cleared",
+        columnTopic: "Topic"
+      }
+    };
+
+    function t(key) {
+      const dictionary = translations[currentLanguage] || translations.is;
+      return dictionary[key] || translations.en[key] || key;
+    }
+
+    function setSortLabel(sectionSelector, key, label) {
+      const button = document.querySelector(sectionSelector + " .sort-button[data-sort-key='" + key + "']");
+      if (!button || !button.firstChild) return;
+      button.firstChild.nodeValue = label + " ";
+    }
+
+    function applyLanguage() {
+      if (!translations[currentLanguage]) {
+        currentLanguage = "is";
+      }
+
+      document.documentElement.lang = currentLanguage;
+      document.title = t("pageTitle");
+      pageTitle.textContent = t("pageTitle");
+      devicesLink.textContent = t("devices");
+      alarmsLink.textContent = t("alarms");
+      languageToggle.textContent = currentLanguage === "is" ? "EN" : "IS";
+      languageToggle.title = currentLanguage === "is" ? "English" : "Íslenska";
+      emailInput.placeholder = t("emailPlaceholder");
+      passwordInput.placeholder = t("passwordPlaceholder");
+      loginButton.textContent = t("login");
+      logoutButton.textContent = t("logout");
+      refresh.textContent = t("refresh");
+      apiLabel.textContent = t("apiLabel");
+      wsLabel.textContent = t("wsLabel");
+      deviceCountLabel.textContent = t("devicesLabel");
+      lastUpdateLabel.textContent = t("lastUpdateLabel");
+      passwordChangeTitle.textContent = t("passwordChangeRequired");
+      currentPasswordInput.placeholder = t("currentPassword");
+      newPasswordInput.placeholder = t("newPassword");
+      confirmPasswordInput.placeholder = t("confirmPassword");
+      changePasswordButton.textContent = t("changePassword");
+      deviceFilterLabel.textContent = t("filter");
+      deviceFilter.placeholder = t("deviceFilterPlaceholder");
+      clearDeviceFilter.textContent = t("clear");
+      saveHeader.textContent = t("save");
+      alarmTitle.textContent = t("alarms");
+      alarmFilterLabel.textContent = t("filter");
+      alarmFilter.placeholder = t("alarmFilterPlaceholder");
+      clearAlarmFilter.textContent = t("clear");
+      shownLabel.textContent = t("shown");
+      if (apiStatus.textContent === "waiting" || apiStatus.textContent === "bíð") {
+        apiStatus.textContent = t("waiting");
+      }
+      if (wsStatus.textContent === "waiting" || wsStatus.textContent === "bíð") {
+        wsStatus.textContent = t("waiting");
+      }
+      if (lastUpdate.textContent === "never" || lastUpdate.textContent === "aldrei") {
+        lastUpdate.textContent = t("never");
+      }
+
+      setSortLabel("#deviceSection", "device_id", t("columnDeviceId"));
+      setSortLabel("#deviceSection", "phone_number", t("columnPhone"));
+      setSortLabel("#deviceSection", "address", t("columnAddress"));
+      setSortLabel("#deviceSection", "connection_state", t("columnStatus"));
+      setSortLabel("#deviceSection", "last_seen", t("columnLastSeen"));
+      setSortLabel("#deviceSection", "temperature", t("columnTemperature"));
+      setSortLabel("#deviceSection", "humidity", t("columnHumidity"));
+      setSortLabel("#deviceSection", "power_source", t("columnPower"));
+      setSortLabel("#deviceSection", "ble_power_monitor_installed", t("columnExtraPowerMonitor"));
+      setSortLabel("#deviceSection", "ble_power_monitor_connection", t("columnExtraPowerMonitorConnection"));
+      setSortLabel("#deviceSection", "low_temperature_display", t("columnSetLowTemp"));
+      setSortLabel("#deviceSection", "high_temperature_display", t("columnSetHighTemp"));
+      setSortLabel("#deviceSection", "high_humidity_display", t("columnSetHighHumidity"));
+      setSortLabel("#deviceSection", "telemetry_interval_display", t("columnRefreshInterval"));
+      setSortLabel("#deviceSection", "alarm_state", t("columnAlarm"));
+
+      setSortLabel("#alarmSection", "created_at", t("columnTime"));
+      setSortLabel("#alarmSection", "cleared_at", t("columnCleared"));
+      setSortLabel("#alarmSection", "device_id", t("columnDeviceId"));
+      setSortLabel("#alarmSection", "alarm_type", t("columnAlarm"));
+      setSortLabel("#alarmSection", "source_topic", t("columnTopic"));
+      updateSortIndicators();
+      updateAlarmSortIndicators();
     }
 
     function fmt(value, suffix) {
@@ -668,7 +890,7 @@ const dashboardHtml = String.raw`<!doctype html>
         const indicator = button.querySelector(".sort-indicator");
         const active = button.dataset.sortKey === sortState.key;
         button.setAttribute("aria-sort", active ? (sortState.direction === "asc" ? "ascending" : "descending") : "none");
-        indicator.textContent = active ? (sortState.direction === "asc" ? "▲" : "▼") : "";
+        indicator.textContent = active ? (sortState.direction === "asc" ? "\u25B2" : "\u25BC") : "";
       });
     }
 
@@ -745,7 +967,7 @@ const dashboardHtml = String.raw`<!doctype html>
         const indicator = button.querySelector(".sort-indicator");
         const active = button.dataset.sortKey === alarmSortState.key;
         button.setAttribute("aria-sort", active ? (alarmSortState.direction === "asc" ? "ascending" : "descending") : "none");
-        indicator.textContent = active ? (alarmSortState.direction === "asc" ? "▲" : "▼") : "";
+        indicator.textContent = active ? (alarmSortState.direction === "asc" ? "\u25B2" : "\u25BC") : "";
       });
     }
 
@@ -770,7 +992,7 @@ const dashboardHtml = String.raw`<!doctype html>
       input.inputMode = "decimal";
       input.maxLength = 4;
       input.value = formatSettingValue(value, decimals);
-      input.title = "Active value: " + fmt(activeValue, unit ? " " + unit : "");
+      input.title = t("activeValue") + ": " + fmt(activeValue, unit ? " " + unit : "");
       return input;
     }
 
@@ -816,7 +1038,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     async function saveRow(deviceId, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, button) {
       button.disabled = true;
-      button.textContent = "Saving";
+      button.textContent = t("saving");
       button.classList.remove("saved");
 
       try {
@@ -841,15 +1063,15 @@ const dashboardHtml = String.raw`<!doctype html>
           pendingContactEdits.delete(deviceId);
         }
 
-        button.textContent = "Saved";
+        button.textContent = t("saved");
         button.classList.add("saved");
         setTimeout(() => {
-          button.textContent = "Save";
+          button.textContent = t("save");
           button.classList.remove("saved");
         }, 1200);
       } catch (error) {
-        button.textContent = "Error";
-        apiStatus.textContent = "save " + error.message;
+        button.textContent = t("error");
+        apiStatus.textContent = t("savePrefix") + error.message;
       } finally {
         button.disabled = false;
       }
@@ -865,7 +1087,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
       if (!devices.length) {
         const row = document.createElement("tr");
-        cell(row, "No devices received yet.");
+        cell(row, t("noDevicesReceived"));
         row.firstChild.colSpan = 16;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
@@ -874,7 +1096,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
       if (!visibleDevices.length) {
         const row = document.createElement("tr");
-        cell(row, "No devices match the current filter.");
+        cell(row, t("noDeviceMatches"));
         row.firstChild.colSpan = 16;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
@@ -903,7 +1125,7 @@ const dashboardHtml = String.raw`<!doctype html>
         const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input", null, "s");
         const rowSaveButton = document.createElement("button");
         rowSaveButton.className = "save-row";
-        rowSaveButton.textContent = "Save";
+        rowSaveButton.textContent = t("save");
         lowInput.addEventListener("input", () => setPendingSetting(device.device_id, "low_temperature", lowInput.value));
         highInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_temperature", highInput.value));
         humidityInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_humidity", humidityInput.value));
@@ -942,7 +1164,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
       if (!alarms.length) {
         const row = document.createElement("tr");
-        cell(row, "No alarm history received.");
+        cell(row, t("noAlarmHistory"));
         row.firstChild.colSpan = 5;
         row.firstChild.className = "empty";
         alarmRows.appendChild(row);
@@ -951,7 +1173,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
       if (!visibleAlarms.length) {
         const row = document.createElement("tr");
-        cell(row, "No alarms match the current filter.");
+        cell(row, t("noAlarmMatches"));
         row.firstChild.colSpan = 5;
         row.firstChild.className = "empty";
         alarmRows.appendChild(row);
@@ -993,7 +1215,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     async function loadState() {
       if (!currentUser) {
-        apiStatus.textContent = "not logged in";
+        apiStatus.textContent = t("notLoggedIn");
         return;
       }
 
@@ -1001,11 +1223,11 @@ const dashboardHtml = String.raw`<!doctype html>
         const response = await fetch("/api/v1/state", { headers: authHeaders() });
         if (response.status === 401) {
           setCurrentUser(null);
-          throw new Error("not logged in");
+          throw new Error(t("notLoggedIn"));
         }
         if (!response.ok) throw new Error("HTTP " + response.status);
         const data = await response.json();
-        apiStatus.textContent = "connected";
+        apiStatus.textContent = t("connected");
         renderState(data);
       } catch (error) {
         apiStatus.textContent = error.message;
@@ -1024,8 +1246,8 @@ const dashboardHtml = String.raw`<!doctype html>
       passwordChangeSection.hidden = !loggedIn || !user.must_change_password;
 
       if (!loggedIn) {
-        apiStatus.textContent = "not logged in";
-        wsStatus.textContent = "not connected";
+        apiStatus.textContent = t("notLoggedIn");
+        wsStatus.textContent = t("notConnected");
         latestDevices = [];
         latestAlarms = [];
         renderDevices([]);
@@ -1034,7 +1256,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function login() {
-      apiStatus.textContent = "logging in";
+      apiStatus.textContent = t("loggingIn");
       const response = await fetch("/api/v1/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1080,10 +1302,10 @@ const dashboardHtml = String.raw`<!doctype html>
 
     async function changePassword() {
       if (newPasswordInput.value !== confirmPasswordInput.value) {
-        throw new Error("New passwords do not match");
+        throw new Error(t("passwordMismatch"));
       }
 
-      passwordChangeStatus.textContent = "saving";
+      passwordChangeStatus.textContent = t("saving");
       const response = await fetch("/api/v1/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1103,7 +1325,7 @@ const dashboardHtml = String.raw`<!doctype html>
       currentPasswordInput.value = "";
       newPasswordInput.value = "";
       confirmPasswordInput.value = "";
-      passwordChangeStatus.textContent = "changed";
+      passwordChangeStatus.textContent = t("passwordChanged");
       setCurrentUser(body.user);
       setTimeout(() => {
         passwordChangeStatus.textContent = "";
@@ -1114,7 +1336,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (ws) ws.close();
 
       if (!currentUser) {
-        wsStatus.textContent = "not logged in";
+        wsStatus.textContent = t("notLoggedIn");
         return;
       }
 
@@ -1123,7 +1345,7 @@ const dashboardHtml = String.raw`<!doctype html>
       ws = new WebSocket(url);
 
       ws.addEventListener("open", () => {
-        wsStatus.textContent = "connected";
+        wsStatus.textContent = t("connected");
       });
 
       ws.addEventListener("message", (event) => {
@@ -1134,21 +1356,21 @@ const dashboardHtml = String.raw`<!doctype html>
       });
 
       ws.addEventListener("close", () => {
-        wsStatus.textContent = "disconnected";
+        wsStatus.textContent = t("disconnected");
         if (currentUser) {
           setTimeout(connectWs, 3000);
         }
       });
 
       ws.addEventListener("error", () => {
-        wsStatus.textContent = "error";
+        wsStatus.textContent = t("error");
       });
     }
 
     loginButton.addEventListener("click", () => {
       login().catch((error) => {
         apiStatus.textContent = error.message;
-        wsStatus.textContent = "not connected";
+        wsStatus.textContent = t("notConnected");
       });
     });
 
@@ -1166,6 +1388,14 @@ const dashboardHtml = String.raw`<!doctype html>
       changePassword().catch((error) => {
         passwordChangeStatus.textContent = error.message;
       });
+    });
+
+    languageToggle.addEventListener("click", () => {
+      currentLanguage = currentLanguage === "is" ? "en" : "is";
+      localStorage.setItem("snjallhus_language", currentLanguage);
+      applyLanguage();
+      renderDevices(latestDevices);
+      renderAlarms(latestAlarms);
     });
 
     refresh.addEventListener("click", loadState);
@@ -1226,6 +1456,7 @@ const dashboardHtml = String.raw`<!doctype html>
       });
     });
 
+    applyLanguage();
     loadMe();
   </script>
 </body>
