@@ -1357,13 +1357,14 @@ const dashboardHtml = String.raw`<!doctype html>
       lastUpdate.textContent = fmtClock(new Date());
     }
 
-    function isAdminUser() {
-      return Boolean(currentUser && (currentUser.role === "super_admin" || currentUser.role === "admin"));
+    function isSuperUser() {
+      return Boolean(currentUser && currentUser.role === "super_admin");
     }
 
     async function loadSettingsCustomers() {
-      if (!isSettingsPage || !currentUser || !isAdminUser()) {
+      if (!isSettingsPage || !currentUser || !isSuperUser()) {
         settingsCustomerWrap.hidden = true;
+        settingsCustomerSelect.textContent = "";
         return;
       }
 
@@ -1393,7 +1394,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     function settingsCustomerQuery() {
-      if (!isAdminUser() || !settingsCustomerSelect.value) {
+      if (!isSuperUser() || !settingsCustomerSelect.value) {
         return "";
       }
 
@@ -1439,7 +1440,7 @@ const dashboardHtml = String.raw`<!doctype html>
           emails: notificationEmailsInput.value
         };
 
-        if (isAdminUser() && settingsCustomerSelect.value) {
+        if (isSuperUser() && settingsCustomerSelect.value) {
           body.customer_id = settingsCustomerSelect.value;
         }
 
@@ -1765,6 +1766,10 @@ function apiTokenUser() {
 
 function isAdminRole(role) {
   return role === "super_admin" || role === "admin";
+}
+
+function isSuperUser(user) {
+  return Boolean(user && user.role === "super_admin");
 }
 
 function isAdminUser(user) {
@@ -2541,7 +2546,7 @@ function parseNotificationEmails(value) {
 function notificationSettingsCustomerId(user, requestedCustomerId = "") {
   const requested = String(requestedCustomerId || "").trim();
 
-  if (isAdminUser(user)) {
+  if (isSuperUser(user)) {
     return requested || user.customer_id || DEFAULT_CUSTOMER_ID;
   }
 
