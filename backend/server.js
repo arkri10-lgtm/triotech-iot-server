@@ -24,6 +24,7 @@ const mqttClient = mqtt.connect(process.env.MQTT_URL || "mqtt://emqx:1883", {
 
 const latestState = {};
 const devices = {};
+const deviceContacts = {};
 let recentAlarms = [];
 const wsClients = new Set();
 const dashboardSessions = new Map();
@@ -103,6 +104,28 @@ const dashboardHtml = String.raw`<!doctype html>
       cursor: pointer;
     }
 
+    .row-input {
+      width: 150px;
+      height: 30px;
+      padding: 0 8px;
+      background: #fff;
+    }
+
+    .address-input {
+      width: 260px;
+    }
+
+    .save-row {
+      height: 30px;
+      min-width: 58px;
+      padding: 0 10px;
+    }
+
+    .save-row.saved {
+      border-color: var(--ok);
+      background: var(--ok);
+    }
+
     main {
       padding: 18px 22px 28px;
     }
@@ -129,7 +152,7 @@ const dashboardHtml = String.raw`<!doctype html>
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1180px;
+      min-width: 1620px;
     }
 
     th,
@@ -231,6 +254,9 @@ const dashboardHtml = String.raw`<!doctype html>
         <thead>
           <tr>
             <th>Device ID</th>
+            <th>Phone</th>
+            <th>Address</th>
+            <th>Save</th>
             <th>Status</th>
             <th>Last seen</th>
             <th>Temp</th>
@@ -246,7 +272,7 @@ const dashboardHtml = String.raw`<!doctype html>
           </tr>
         </thead>
         <tbody id="deviceRows">
-          <tr><td colspan="13" class="empty">No device data loaded.</td></tr>
+          <tr><td colspan="16" class="empty">No device data loaded.</td></tr>
         </tbody>
       </table>
     </div>
@@ -284,6 +310,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const alarmRows = document.getElementById("alarmRows");
 
     let ws = null;
+    const pendingContactEdits = new Map();
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
 
     function token() {
@@ -349,6 +376,54 @@ const dashboardHtml = String.raw`<!doctype html>
       row.appendChild(td);
     }
 
+    function contactInput(value, extraClass) {
+      const input = document.createElement("input");
+      input.className = "row-input " + (extraClass || "");
+      input.value = value || "";
+      return input;
+    }
+
+    function setPendingContact(deviceId, field, value) {
+      const pending = pendingContactEdits.get(deviceId) || {};
+      pending[field] = value;
+      pendingContactEdits.set(deviceId, pending);
+    }
+
+    async function saveContact(deviceId, phoneInput, addressInput, button) {
+      button.disabled = true;
+      button.textContent = "Saving";
+      button.classList.remove("saved");
+
+      try {
+        const response = await fetch("/api/v1/devices/" + encodeURIComponent(deviceId) + "/contact", {
+          method: "PATCH",
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            phone_number: phoneInput.value.trim(),
+            address: addressInput.value.trim()
+          })
+        });
+
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        pendingContactEdits.delete(deviceId);
+        button.textContent = "Saved";
+        button.classList.add("saved");
+        setTimeout(() => {
+          button.textContent = "Save";
+          button.classList.remove("saved");
+        }, 1200);
+      } catch (error) {
+        button.textContent = "Error";
+        apiStatus.textContent = "contact save " + error.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     function renderDevices(devices) {
       deviceRows.textContent = "";
       deviceCount.textContent = String(devices.length);
@@ -356,7 +431,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!devices.length) {
         const row = document.createElement("tr");
         cell(row, "No devices received yet.");
-        row.firstChild.colSpan = 13;
+        row.firstChild.colSpan = 16;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
         return;
@@ -372,8 +447,20 @@ const dashboardHtml = String.raw`<!doctype html>
 
         const status = device.connection_state || device.status;
         const statusKind = device.is_offline ? "warn" : (status === "online" ? "ok" : "warn");
+        const pendingContact = pendingContactEdits.get(device.device_id) || {};
+        const phoneInput = contactInput(pendingContact.phone_number ?? device.phone_number, "phone-input");
+        const addressInput = contactInput(pendingContact.address ?? device.address, "address-input");
+        const saveButton = document.createElement("button");
+        saveButton.className = "save-row";
+        saveButton.textContent = "Save";
+        phoneInput.addEventListener("input", () => setPendingContact(device.device_id, "phone_number", phoneInput.value));
+        addressInput.addEventListener("input", () => setPendingContact(device.device_id, "address", addressInput.value));
+        saveButton.addEventListener("click", () => saveContact(device.device_id, phoneInput, addressInput, saveButton));
 
         cell(row, device.device_id);
+        cell(row, phoneInput);
+        cell(row, addressInput);
+        cell(row, saveButton);
         cell(row, badge(status, statusKind));
         cell(row, fmtTime(device.last_seen) + (device.seconds_since_seen !== null ? " (" + fmtAge(device.seconds_since_seen) + ")" : ""));
         cell(row, fmt(device.temperature, " C"));
@@ -413,8 +500,14 @@ const dashboardHtml = String.raw`<!doctype html>
       }
     }
 
+    function isEditingContact() {
+      return document.activeElement && document.activeElement.classList.contains("row-input");
+    }
+
     function renderState(state) {
-      renderDevices(state.devices || []);
+      if (!isEditingContact()) {
+        renderDevices(state.devices || []);
+      }
       renderAlarms(state.alarms || []);
       lastUpdate.textContent = fmtClock(new Date());
     }
@@ -563,10 +656,27 @@ function numberOrNull(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function textLimit(value, maxLength) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function contactForDevice(deviceId) {
+  return deviceContacts[deviceId] || {
+    phone_number: "",
+    address: "",
+    contact_updated_at: null
+  };
+}
+
 function getDevice(deviceId) {
   if (!devices[deviceId]) {
+    const contact = contactForDevice(deviceId);
+
     devices[deviceId] = {
       device_id: deviceId,
+      phone_number: contact.phone_number,
+      address: contact.address,
+      contact_updated_at: contact.contact_updated_at,
       status: "unknown",
       last_seen: null,
       temperature: null,
@@ -584,6 +694,17 @@ function getDevice(deviceId) {
   }
 
   return devices[deviceId];
+}
+
+function applyContactToDevice(deviceId, contact) {
+  deviceContacts[deviceId] = contact;
+
+  const device = getDevice(deviceId);
+  device.phone_number = contact.phone_number;
+  device.address = contact.address;
+  device.contact_updated_at = contact.contact_updated_at;
+
+  return device;
 }
 
 function getDeviceView(device, now = Date.now()) {
@@ -660,6 +781,16 @@ async function initDatabase() {
   `);
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS device_contact_info (
+      device_id TEXT PRIMARY KEY,
+      phone_number TEXT NOT NULL DEFAULT '',
+      address TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`
     CREATE INDEX IF NOT EXISTS device_alarm_log_created_idx
     ON device_alarm_log (created_at DESC)
   `);
@@ -669,6 +800,76 @@ async function initDatabase() {
     ON device_alarm_log (device_id, alarm_type)
     WHERE status = 'ACTIVE' AND cleared_at IS NULL
   `);
+}
+
+async function refreshDeviceContacts() {
+  if (!db) {
+    return deviceContacts;
+  }
+
+  const result = await db.query(`
+    SELECT
+      device_id,
+      phone_number,
+      address,
+      updated_at
+    FROM device_contact_info
+    ORDER BY device_id
+  `);
+
+  for (const key of Object.keys(deviceContacts)) {
+    delete deviceContacts[key];
+  }
+
+  for (const row of result.rows) {
+    applyContactToDevice(row.device_id, {
+      phone_number: row.phone_number || "",
+      address: row.address || "",
+      contact_updated_at: row.updated_at
+    });
+  }
+
+  return deviceContacts;
+}
+
+async function saveDeviceContact(deviceId, phoneNumber, address) {
+  const contact = {
+    phone_number: textLimit(phoneNumber, 80),
+    address: textLimit(address, 240),
+    contact_updated_at: new Date().toISOString()
+  };
+
+  if (!db) {
+    applyContactToDevice(deviceId, contact);
+    return contact;
+  }
+
+  const result = await db.query(
+    `
+      INSERT INTO device_contact_info (
+        device_id,
+        phone_number,
+        address
+      )
+      VALUES ($1, $2, $3)
+      ON CONFLICT (device_id)
+      DO UPDATE SET
+        phone_number = EXCLUDED.phone_number,
+        address = EXCLUDED.address,
+        updated_at = now()
+      RETURNING device_id, phone_number, address, updated_at
+    `,
+    [deviceId, contact.phone_number, contact.address]
+  );
+
+  const savedContact = {
+    phone_number: result.rows[0].phone_number || "",
+    address: result.rows[0].address || "",
+    contact_updated_at: result.rows[0].updated_at
+  };
+
+  applyContactToDevice(deviceId, savedContact);
+  return savedContact;
 }
 
 async function refreshRecentAlarms() {
@@ -963,6 +1164,29 @@ app.get("/api/v1/devices", { preHandler: checkAuth }, async () => {
   return getDashboardState().devices;
 });
 
+app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async (req, reply) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+
+  if (!/^[A-Za-z0-9_-]+$/.test(deviceId)) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Invalid device ID"
+    };
+  }
+
+  const { phone_number: phoneNumber = "", address = "" } = req.body || {};
+  const contact = await saveDeviceContact(deviceId, phoneNumber, address);
+
+  publishWebSocketState();
+
+  return {
+    ok: true,
+    device_id: deviceId,
+    ...contact
+  };
+});
+
 app.get("/api/v1/alarms", { preHandler: checkAuth }, async () => {
   return refreshRecentAlarms();
 });
@@ -1009,6 +1233,7 @@ app.get("/api/v1/ws", { websocket: true }, (socket, req) => {
 setInterval(publishWebSocketState, 10000);
 
 await initDatabase();
+await refreshDeviceContacts();
 await refreshRecentAlarms();
 
 app.listen({ port: PORT, host: "0.0.0.0" });
