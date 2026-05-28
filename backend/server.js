@@ -291,6 +291,19 @@ const dashboardHtml = String.raw`<!doctype html>
       font-weight: 700;
       text-align: left;
       text-transform: inherit;
+      line-height: 1.15;
+      white-space: normal;
+    }
+
+    .sort-label {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .sort-label-line {
+      display: block;
+      white-space: nowrap;
     }
 
     .sort-indicator {
@@ -645,12 +658,12 @@ const dashboardHtml = String.raw`<!doctype html>
         columnTemperature: "Hiti (C)",
         columnHumidity: "Raki (%)",
         columnPower: "Aflgjafi",
-        columnExtraPowerMonitor: "Auka aflvaki",
-        columnExtraPowerMonitorConnection: "Auka aflvaki staða",
-        columnSetLowTemp: "Settur lágur hiti (C)",
-        columnSetHighTemp: "Settur hár hiti (C)",
-        columnSetHighHumidity: "Settur hár raki (%)",
-        columnRefreshInterval: "Uppfærslubil (s)",
+        columnExtraPowerMonitor: "Auka\naflvaki",
+        columnExtraPowerMonitorConnection: "Auka aflvaki\nstaða",
+        columnSetLowTemp: "Settur lágur\nhiti (C)",
+        columnSetHighTemp: "Settur hár\nhiti (C)",
+        columnSetHighHumidity: "Settur hár\nraki (%)",
+        columnRefreshInterval: "Uppfærslubil\n(s)",
         columnAlarm: "Viðvörun",
         columnTime: "Tími",
         columnCleared: "Hreinsað",
@@ -714,12 +727,12 @@ const dashboardHtml = String.raw`<!doctype html>
         columnTemperature: "Temp (C)",
         columnHumidity: "Humidity (%)",
         columnPower: "Power",
-        columnExtraPowerMonitor: "Aux. power monitor",
-        columnExtraPowerMonitorConnection: "Aux. power monitor status",
-        columnSetLowTemp: "SET Low temp (C)",
-        columnSetHighTemp: "SET High temp (C)",
-        columnSetHighHumidity: "SET High humidity (%)",
-        columnRefreshInterval: "Refresh interval (s)",
+        columnExtraPowerMonitor: "Aux. power\nmonitor",
+        columnExtraPowerMonitorConnection: "Aux. power\nmonitor status",
+        columnSetLowTemp: "SET Low\ntemp (C)",
+        columnSetHighTemp: "SET High\ntemp (C)",
+        columnSetHighHumidity: "SET High\nhumidity (%)",
+        columnRefreshInterval: "Refresh\ninterval (s)",
         columnAlarm: "Alarm",
         columnTime: "Time",
         columnCleared: "Cleared",
@@ -740,8 +753,32 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function setSortLabel(sectionSelector, key, label) {
       const button = document.querySelector(sectionSelector + " .sort-button[data-sort-key='" + key + "']");
-      if (!button || !button.firstChild) return;
-      button.firstChild.nodeValue = label + " ";
+      if (!button) return;
+
+      const indicator = button.querySelector(".sort-indicator");
+      let labelElement = button.querySelector(".sort-label");
+
+      if (!labelElement) {
+        labelElement = document.createElement("span");
+        labelElement.className = "sort-label";
+
+        for (const node of Array.from(button.childNodes)) {
+          if (node !== indicator) {
+            node.remove();
+          }
+        }
+
+        button.insertBefore(labelElement, indicator || null);
+      }
+
+      labelElement.textContent = "";
+
+      for (const part of String(label).split("\n")) {
+        const line = document.createElement("span");
+        line.className = "sort-label-line";
+        line.textContent = part;
+        labelElement.appendChild(line);
+      }
     }
 
     function applyLanguage() {
