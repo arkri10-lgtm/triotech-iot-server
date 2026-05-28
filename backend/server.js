@@ -36,6 +36,7 @@ const devices = {};
 const deviceRegistry = {};
 const deviceContacts = {};
 const deviceSettings = {};
+const notificationEmailSettings = {};
 let recentAlarms = [];
 const wsClients = new Map();
 const dashboardSessions = new Map();
@@ -204,6 +205,25 @@ const dashboardHtml = String.raw`<!doctype html>
       width: 220px;
     }
 
+    select,
+    textarea {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font: inherit;
+      background: #fff;
+    }
+
+    select {
+      height: 34px;
+    }
+
+    textarea {
+      width: min(560px, 100%);
+      min-height: 150px;
+      resize: vertical;
+    }
+
     .user-info {
       color: var(--muted);
       font-size: 13px;
@@ -330,6 +350,32 @@ const dashboardHtml = String.raw`<!doctype html>
       font-size: 16px;
     }
 
+    .settings-panel {
+      display: grid;
+      gap: 12px;
+      max-width: 680px;
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .settings-row {
+      display: grid;
+      gap: 6px;
+    }
+
+    .settings-row label {
+      font-weight: 700;
+    }
+
+    .settings-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
     .empty {
       padding: 16px;
       color: var(--muted);
@@ -358,6 +404,7 @@ const dashboardHtml = String.raw`<!doctype html>
     <nav class="nav-links" aria-label="Main pages">
       <a id="devicesLink" href="/dashboard">T&aelig;kjaskr&aacute;</a>
       <a id="alarmsLink" href="/alarms">Vi&eth;v&ouml;runarskr&aacute;</a>
+      <a id="settingsLink" href="/settings">Stillingar</a>
     </nav>
     <div class="toolbar">
       <span id="userInfo" class="user-info"></span>
@@ -447,6 +494,24 @@ const dashboardHtml = String.raw`<!doctype html>
         </table>
       </div>
     </section>
+
+    <section id="settingsSection">
+      <h2 id="settingsTitle">Stillingar</h2>
+      <div class="settings-panel">
+        <div id="settingsCustomerWrap" class="settings-row" hidden>
+          <label id="settingsCustomerLabel" for="settingsCustomerSelect">Vi&eth;skiptavinur</label>
+          <select id="settingsCustomerSelect"></select>
+        </div>
+        <div class="settings-row">
+          <label id="notificationEmailsLabel" for="notificationEmailsInput">Vi&eth;v&ouml;runar netf&ouml;ng</label>
+          <textarea id="notificationEmailsInput" spellcheck="false" autocomplete="off" placeholder="eitt netfang &iacute; hverja l&iacute;nu"></textarea>
+        </div>
+        <div class="settings-actions">
+          <button id="saveNotificationEmails" type="button">Vista netf&ouml;ng</button>
+          <span id="notificationEmailsStatus"></span>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -477,8 +542,10 @@ const dashboardHtml = String.raw`<!doctype html>
     const alarmRows = document.getElementById("alarmRows");
     const deviceSection = document.getElementById("deviceSection");
     const alarmSection = document.getElementById("alarmSection");
+    const settingsSection = document.getElementById("settingsSection");
     const devicesLink = document.getElementById("devicesLink");
     const alarmsLink = document.getElementById("alarmsLink");
+    const settingsLink = document.getElementById("settingsLink");
     const deviceFilterLabel = document.getElementById("deviceFilterLabel");
     const deviceFilter = document.getElementById("deviceFilter");
     const clearDeviceFilter = document.getElementById("clearDeviceFilter");
@@ -489,11 +556,21 @@ const dashboardHtml = String.raw`<!doctype html>
     const clearAlarmFilter = document.getElementById("clearAlarmFilter");
     const shownLabel = document.getElementById("shownLabel");
     const alarmCount = document.getElementById("alarmCount");
+    const settingsTitle = document.getElementById("settingsTitle");
+    const settingsCustomerWrap = document.getElementById("settingsCustomerWrap");
+    const settingsCustomerLabel = document.getElementById("settingsCustomerLabel");
+    const settingsCustomerSelect = document.getElementById("settingsCustomerSelect");
+    const notificationEmailsLabel = document.getElementById("notificationEmailsLabel");
+    const notificationEmailsInput = document.getElementById("notificationEmailsInput");
+    const saveNotificationEmails = document.getElementById("saveNotificationEmails");
+    const notificationEmailsStatus = document.getElementById("notificationEmailsStatus");
 
     let ws = null;
     const pendingContactEdits = new Map();
     const pendingSettingEdits = new Map();
     const isAlarmPage = location.pathname.startsWith("/alarms");
+    const isSettingsPage = location.pathname.startsWith("/settings");
+    const isDevicePage = !isAlarmPage && !isSettingsPage;
     const sortState = { key: "device_id", type: "text", direction: "asc" };
     const alarmSortState = { key: "created_at", type: "time", direction: "desc" };
     let latestDevices = [];
@@ -504,10 +581,12 @@ const dashboardHtml = String.raw`<!doctype html>
     deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
     alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
 
-    deviceSection.hidden = isAlarmPage;
+    deviceSection.hidden = !isDevicePage;
     alarmSection.hidden = !isAlarmPage;
-    devicesLink.classList.toggle("active", !isAlarmPage);
+    settingsSection.hidden = !isSettingsPage;
+    devicesLink.classList.toggle("active", isDevicePage);
     alarmsLink.classList.toggle("active", isAlarmPage);
+    settingsLink.classList.toggle("active", isSettingsPage);
 
     function authHeaders() {
       return {};
@@ -518,6 +597,7 @@ const dashboardHtml = String.raw`<!doctype html>
         pageTitle: "Snjalli Húsvörðurinn",
         devices: "Tækjaskrá",
         alarms: "Viðvörunarskrá",
+        settings: "Stillingar",
         emailPlaceholder: "Netfang",
         passwordPlaceholder: "Lykilorð",
         login: "Innskrá",
@@ -574,12 +654,19 @@ const dashboardHtml = String.raw`<!doctype html>
         columnAlarm: "Viðvörun",
         columnTime: "Tími",
         columnCleared: "Hreinsað",
-        columnTopic: "Topic"
+        columnTopic: "Topic",
+        customer: "Viðskiptavinur",
+        notificationEmails: "Viðvörunar netföng",
+        notificationEmailsPlaceholder: "eitt netfang í hverja línu",
+        saveNotificationEmails: "Vista netföng",
+        loading: "sæki",
+        settingsSaved: "vistað"
       },
       en: {
         pageTitle: "Snjalli Husvordurinn",
         devices: "Devices",
         alarms: "Alarm log",
+        settings: "Settings",
         emailPlaceholder: "Email",
         passwordPlaceholder: "Password",
         login: "Login",
@@ -636,7 +723,13 @@ const dashboardHtml = String.raw`<!doctype html>
         columnAlarm: "Alarm",
         columnTime: "Time",
         columnCleared: "Cleared",
-        columnTopic: "Topic"
+        columnTopic: "Topic",
+        customer: "Customer",
+        notificationEmails: "Alarm email recipients",
+        notificationEmailsPlaceholder: "one email address per line",
+        saveNotificationEmails: "Save emails",
+        loading: "loading",
+        settingsSaved: "saved"
       }
     };
 
@@ -661,6 +754,7 @@ const dashboardHtml = String.raw`<!doctype html>
       pageTitle.textContent = t("pageTitle");
       devicesLink.textContent = t("devices");
       alarmsLink.textContent = t("alarms");
+      settingsLink.textContent = t("settings");
       languageToggle.textContent = currentLanguage === "is" ? "EN" : "IS";
       languageToggle.title = currentLanguage === "is" ? "English" : "Íslenska";
       emailInput.placeholder = t("emailPlaceholder");
@@ -686,6 +780,11 @@ const dashboardHtml = String.raw`<!doctype html>
       alarmFilter.placeholder = t("alarmFilterPlaceholder");
       clearAlarmFilter.textContent = t("clear");
       shownLabel.textContent = t("shown");
+      settingsTitle.textContent = t("settings");
+      settingsCustomerLabel.textContent = t("customer");
+      notificationEmailsLabel.textContent = t("notificationEmails");
+      notificationEmailsInput.placeholder = t("notificationEmailsPlaceholder");
+      saveNotificationEmails.textContent = t("saveNotificationEmails");
       if (apiStatus.textContent === "waiting" || apiStatus.textContent === "bíð") {
         apiStatus.textContent = t("waiting");
       }
@@ -1018,9 +1117,9 @@ const dashboardHtml = String.raw`<!doctype html>
       pendingSettingEdits.set(deviceId, pending);
     }
 
-    async function patchJson(url, body) {
+    async function sendJson(method, url, body) {
       const response = await fetch(url, {
-        method: "PATCH",
+        method,
         headers: {
           ...authHeaders(),
           "Content-Type": "application/json"
@@ -1034,6 +1133,14 @@ const dashboardHtml = String.raw`<!doctype html>
       }
 
       return response.json();
+    }
+
+    async function patchJson(url, body) {
+      return sendJson("PATCH", url, body);
+    }
+
+    async function putJson(url, body) {
+      return sendJson("PUT", url, body);
     }
 
     async function saveRow(deviceId, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, button) {
@@ -1202,7 +1309,7 @@ const dashboardHtml = String.raw`<!doctype html>
       latestAlarms = alarms;
       deviceCount.textContent = String(devices.length);
 
-      if (!isAlarmPage && !isEditingContact()) {
+      if (isDevicePage && !isEditingContact()) {
         renderDevices(devices);
       }
 
@@ -1211,6 +1318,102 @@ const dashboardHtml = String.raw`<!doctype html>
       }
 
       lastUpdate.textContent = fmtClock(new Date());
+    }
+
+    function isAdminUser() {
+      return Boolean(currentUser && (currentUser.role === "super_admin" || currentUser.role === "admin"));
+    }
+
+    async function loadSettingsCustomers() {
+      if (!isSettingsPage || !currentUser || !isAdminUser()) {
+        settingsCustomerWrap.hidden = true;
+        return;
+      }
+
+      const previousValue = settingsCustomerSelect.value;
+      const response = await fetch("/api/v1/admin/customers", { headers: authHeaders() });
+
+      if (!response.ok) {
+        throw new Error("HTTP " + response.status);
+      }
+
+      const body = await response.json();
+      const customers = body.customers || [];
+      settingsCustomerSelect.textContent = "";
+
+      for (const customer of customers) {
+        const option = document.createElement("option");
+        option.value = customer.id;
+        option.textContent = customer.name + " (" + customer.id + ")";
+        settingsCustomerSelect.appendChild(option);
+      }
+
+      if (previousValue && [...settingsCustomerSelect.options].some((option) => option.value === previousValue)) {
+        settingsCustomerSelect.value = previousValue;
+      }
+
+      settingsCustomerWrap.hidden = customers.length <= 1;
+    }
+
+    function settingsCustomerQuery() {
+      if (!isAdminUser() || !settingsCustomerSelect.value) {
+        return "";
+      }
+
+      return "?customer_id=" + encodeURIComponent(settingsCustomerSelect.value);
+    }
+
+    async function loadNotificationSettings() {
+      if (!isSettingsPage || !currentUser) {
+        return;
+      }
+
+      notificationEmailsStatus.textContent = t("loading");
+
+      try {
+        await loadSettingsCustomers();
+        const response = await fetch("/api/v1/settings/notification-emails" + settingsCustomerQuery(), {
+          headers: authHeaders()
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || ("HTTP " + response.status));
+        }
+
+        const body = await response.json();
+        notificationEmailsInput.value = (body.emails || []).join("\n");
+        notificationEmailsStatus.textContent = "";
+      } catch (error) {
+        notificationEmailsStatus.textContent = error.message;
+      }
+    }
+
+    async function saveNotificationEmailSettings() {
+      if (!isSettingsPage || !currentUser) {
+        return;
+      }
+
+      saveNotificationEmails.disabled = true;
+      notificationEmailsStatus.textContent = t("saving");
+
+      try {
+        const body = {
+          emails: notificationEmailsInput.value
+        };
+
+        if (isAdminUser() && settingsCustomerSelect.value) {
+          body.customer_id = settingsCustomerSelect.value;
+        }
+
+        const result = await putJson("/api/v1/settings/notification-emails", body);
+        notificationEmailsInput.value = (result.emails || []).join("\n");
+        notificationEmailsStatus.textContent = t("settingsSaved");
+      } catch (error) {
+        notificationEmailsStatus.textContent = error.message;
+      } finally {
+        saveNotificationEmails.disabled = false;
+      }
     }
 
     async function loadState() {
@@ -1252,6 +1455,8 @@ const dashboardHtml = String.raw`<!doctype html>
         latestAlarms = [];
         renderDevices([]);
         renderAlarms([]);
+        notificationEmailsInput.value = "";
+        notificationEmailsStatus.textContent = "";
       }
     }
 
@@ -1276,6 +1481,7 @@ const dashboardHtml = String.raw`<!doctype html>
       passwordInput.value = "";
       setCurrentUser(body.user);
       await loadState();
+      await loadNotificationSettings();
       connectWs();
     }
 
@@ -1297,6 +1503,7 @@ const dashboardHtml = String.raw`<!doctype html>
       const body = await response.json();
       setCurrentUser(body.user);
       await loadState();
+      await loadNotificationSettings();
       connectWs();
     }
 
@@ -1398,7 +1605,10 @@ const dashboardHtml = String.raw`<!doctype html>
       renderAlarms(latestAlarms);
     });
 
-    refresh.addEventListener("click", loadState);
+    refresh.addEventListener("click", () => {
+      loadState();
+      loadNotificationSettings();
+    });
 
     deviceFilter.addEventListener("input", () => {
       localStorage.setItem("snjallhus_device_filter", deviceFilter.value);
@@ -1423,6 +1633,9 @@ const dashboardHtml = String.raw`<!doctype html>
       renderAlarms(latestAlarms);
       alarmFilter.focus();
     });
+
+    settingsCustomerSelect.addEventListener("change", loadNotificationSettings);
+    saveNotificationEmails.addEventListener("click", saveNotificationEmailSettings);
 
     document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1990,6 +2203,17 @@ async function initDatabase() {
   `);
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS customer_alarm_email_recipients (
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (customer_id, email)
+    )
+  `);
+
+  await db.query(`
     CREATE INDEX IF NOT EXISTS device_alarm_log_created_idx
     ON device_alarm_log (created_at DESC)
   `);
@@ -2008,6 +2232,11 @@ async function initDatabase() {
   await db.query(`
     CREATE INDEX IF NOT EXISTS devices_customer_idx
     ON devices (customer_id)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS customer_alarm_email_recipients_customer_idx
+    ON customer_alarm_email_recipients (customer_id)
   `);
 
   await db.query(
@@ -2241,6 +2470,142 @@ async function saveCustomerSubscription(customerId, values) {
   }
 
   return customerFromRow(result.rows[0]);
+}
+
+function parseNotificationEmails(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[\s,;]+/);
+  const emails = [];
+  const seen = new Set();
+
+  for (const rawValue of rawValues) {
+    const email = normalizeEmail(rawValue);
+
+    if (!email) {
+      continue;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      const error = new Error(`Invalid email address: ${email}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!seen.has(email)) {
+      seen.add(email);
+      emails.push(email);
+    }
+  }
+
+  return emails;
+}
+
+function notificationSettingsCustomerId(user, requestedCustomerId = "") {
+  const requested = String(requestedCustomerId || "").trim();
+
+  if (isAdminUser(user)) {
+    return requested || user.customer_id || DEFAULT_CUSTOMER_ID;
+  }
+
+  if (!user.customer_id) {
+    const error = new Error("Customer is required");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (requested && requested !== user.customer_id) {
+    const error = new Error("Forbidden");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return user.customer_id;
+}
+
+async function assertCustomerExists(customerId) {
+  if (!db) {
+    return;
+  }
+
+  const result = await db.query(
+    "SELECT id FROM customers WHERE id = $1 LIMIT 1",
+    [customerId]
+  );
+
+  if (result.rowCount === 0) {
+    const error = new Error("Customer not found");
+    error.statusCode = 404;
+    throw error;
+  }
+}
+
+async function getNotificationEmails(customerId) {
+  if (!db) {
+    return notificationEmailSettings[customerId] || [];
+  }
+
+  const result = await db.query(
+    `
+      SELECT email
+      FROM customer_alarm_email_recipients
+      WHERE customer_id = $1
+        AND active = true
+      ORDER BY email
+    `,
+    [customerId]
+  );
+
+  const emails = result.rows.map((row) => row.email);
+  notificationEmailSettings[customerId] = emails;
+  return emails;
+}
+
+async function saveNotificationEmails(customerId, emails) {
+  notificationEmailSettings[customerId] = emails;
+
+  if (!db) {
+    return emails;
+  }
+
+  await assertCustomerExists(customerId);
+
+  const client = await db.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "DELETE FROM customer_alarm_email_recipients WHERE customer_id = $1",
+      [customerId]
+    );
+
+    for (const email of emails) {
+      await client.query(
+        `
+          INSERT INTO customer_alarm_email_recipients (
+            customer_id,
+            email,
+            active
+          )
+          VALUES ($1, $2, true)
+          ON CONFLICT (customer_id, email)
+          DO UPDATE SET
+            active = true,
+            updated_at = now()
+        `,
+        [customerId, email]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return getNotificationEmails(customerId);
 }
 
 function topicDeviceId(topic) {
@@ -2858,6 +3223,10 @@ app.get("/alarms", async (req, reply) => {
   return reply.type("text/html").send(dashboardHtml);
 });
 
+app.get("/settings", async (req, reply) => {
+  return reply.type("text/html").send(dashboardHtml);
+});
+
 app.post("/api/v1/login", async (req, reply) => {
   if (!db) {
     reply.code(503);
@@ -3085,6 +3454,45 @@ app.patch("/api/v1/admin/customers/:customerId/subscription", { preHandler: chec
     return {
       ok: true,
       customer
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.get("/api/v1/settings/notification-emails", { preHandler: checkAuth }, async (req, reply) => {
+  try {
+    const customerId = notificationSettingsCustomerId(req.user, req.query?.customer_id);
+    await assertCustomerExists(customerId);
+
+    return {
+      ok: true,
+      customer_id: customerId,
+      emails: await getNotificationEmails(customerId)
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.put("/api/v1/settings/notification-emails", { preHandler: checkAuth }, async (req, reply) => {
+  try {
+    const customerId = notificationSettingsCustomerId(req.user, req.body?.customer_id);
+    const emails = parseNotificationEmails(req.body?.emails);
+    const savedEmails = await saveNotificationEmails(customerId, emails);
+
+    return {
+      ok: true,
+      customer_id: customerId,
+      emails: savedEmails
     };
   } catch (error) {
     reply.code(error.statusCode || 500);
