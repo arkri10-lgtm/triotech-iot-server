@@ -1,0 +1,42 @@
+services:
+  emqx:
+    image: emqx/emqx:latest
+    container_name: triotech-emqx
+    restart: unless-stopped
+    environment:
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: /opt/emqx/etc/certs/mqtt/fullchain.pem
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: /opt/emqx/etc/certs/mqtt/privkey.pem
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_none
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "false"
+    ports:
+      - "1883:1883"
+      - "8883:8883"
+      - "127.0.0.1:18083:18083"
+      - "8083:8083"
+      - "8084:8084"
+    volumes:
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+      - ./certs/mqtt:/opt/emqx/etc/certs/mqtt:ro
+  backend:
+    image: node:22-alpine
+    container_name: triotech-backend
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    environment:
+      PORT: 3000
+      MQTT_URL: mqtt://emqx:1883
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      API_TOKEN: ${API_TOKEN}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - emqx
+
+volumes:
+  emqx_data:
+  emqx_log:

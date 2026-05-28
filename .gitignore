@@ -1,0 +1,9 @@
+.env
+certs/
+backend/node_modules/
+backend/package-lock.json
+*.log
+*.bak*
+emqx_data/
+emqx_log/
+postgres_data/
