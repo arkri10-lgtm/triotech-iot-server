@@ -20,6 +20,7 @@ const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
 const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "customer-1";
 const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
 const ALERT_EMAIL_ENABLED = String(process.env.ALERT_EMAIL_ENABLED || "false").toLowerCase() === "true";
+const ALERT_EMAIL_BATCH_MS = Math.max(0, Number(process.env.ALERT_EMAIL_BATCH_MS || 120000));
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_SECURE = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
@@ -49,6 +50,7 @@ let recentAlarms = [];
 const wsClients = new Map();
 const dashboardSessions = new Map();
 let mailTransporter = null;
+const alarmEmailBatches = new Map();
 
 const dashboardHtml = String.raw`<!doctype html>
 <html lang="en">
@@ -2690,28 +2692,8 @@ function alarmLabel(alarmType) {
   return String(alarmType || "alarm").replace(/_/g, " ");
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-async function sendAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic) {
-  const recipients = await getNotificationEmails(customerId);
-
-  if (recipients.length === 0) {
-    return;
-  }
-
-  if (!alertEmailIsConfigured()) {
-    app.log.warn({ customerId, deviceId, alarmType }, "Alarm email skipped because SMTP is not configured");
-    return;
-  }
-
-  const createdAt = new Date().toLocaleString("en-GB", {
+function formatIcelandTime(value = new Date()) {
+  return new Date(value).toLocaleString("en-GB", {
     timeZone: "Atlantic/Reykjavik",
     year: "numeric",
     month: "2-digit",
@@ -2721,30 +2703,83 @@ async function sendAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic
     second: "2-digit",
     hour12: false
   });
-  const label = alarmLabel(alarmType);
-  const subject = `[Snjallhus] ${label} alarm on ${deviceId}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function sendAlarmEmailBatch(customerId, alarms) {
+  if (!alarms.length) {
+    return;
+  }
+
+  const recipients = await getNotificationEmails(customerId);
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  if (!alertEmailIsConfigured()) {
+    app.log.warn({ customerId, alarms: alarms.length }, "Alarm email batch skipped because SMTP is not configured");
+    return;
+  }
+
+  const uniqueDeviceCount = new Set(alarms.map((alarm) => alarm.deviceId)).size;
+  const firstAlarm = alarms[0];
+  const subject = alarms.length === 1
+    ? `[Snjallhus] ${alarmLabel(firstAlarm.alarmType)} alarm on ${firstAlarm.deviceId}`
+    : `[Snjallhus] ${alarms.length} new alarms on ${uniqueDeviceCount} devices`;
+  const rows = alarms.map((alarm) => ({
+    ...alarm,
+    label: alarmLabel(alarm.alarmType),
+    displayTime: formatIcelandTime(alarm.createdAt)
+  }));
   const text = [
-    "Snjallhus alarm",
+    "Snjallhus alarm summary",
     "",
-    `Device: ${deviceId}`,
-    `Alarm: ${label}`,
-    `Status: ACTIVE`,
-    `Value: ${alarmValue ?? ""}`,
-    `Time: ${createdAt}`,
-    `Topic: ${topic}`,
+    `New active alarms: ${alarms.length}`,
+    `Devices with alarms: ${uniqueDeviceCount}`,
+    `Window: ${formatIcelandTime(rows[0].createdAt)} - ${formatIcelandTime(rows[rows.length - 1].createdAt)}`,
     "",
-    "This email was sent because a new active alarm was received."
+    ...rows.map((alarm) => [
+      `Time: ${alarm.displayTime}`,
+      `Device: ${alarm.deviceId}`,
+      `Alarm: ${alarm.label}`,
+      `Value: ${alarm.alarmValue ?? ""}`,
+      `Topic: ${alarm.topic}`,
+      ""
+    ].join("\n"))
   ].join("\n");
   const html = `
-    <h2>Snjallhus alarm</h2>
-    <p>A new active alarm was received.</p>
-    <table>
-      <tr><th align="left">Device</th><td>${escapeHtml(deviceId)}</td></tr>
-      <tr><th align="left">Alarm</th><td>${escapeHtml(label)}</td></tr>
-      <tr><th align="left">Status</th><td>ACTIVE</td></tr>
-      <tr><th align="left">Value</th><td>${escapeHtml(alarmValue ?? "")}</td></tr>
-      <tr><th align="left">Time</th><td>${escapeHtml(createdAt)}</td></tr>
-      <tr><th align="left">Topic</th><td>${escapeHtml(topic)}</td></tr>
+    <h2>Snjallhus alarm summary</h2>
+    <p>${alarms.length} new active alarm${alarms.length === 1 ? "" : "s"} on ${uniqueDeviceCount} device${uniqueDeviceCount === 1 ? "" : "s"}.</p>
+    <table border="1" cellspacing="0" cellpadding="6">
+      <thead>
+        <tr>
+          <th align="left">Time</th>
+          <th align="left">Device</th>
+          <th align="left">Alarm</th>
+          <th align="left">Value</th>
+          <th align="left">Topic</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((alarm) => `
+          <tr>
+            <td>${escapeHtml(alarm.displayTime)}</td>
+            <td>${escapeHtml(alarm.deviceId)}</td>
+            <td>${escapeHtml(alarm.label)}</td>
+            <td>${escapeHtml(alarm.alarmValue ?? "")}</td>
+            <td>${escapeHtml(alarm.topic)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
     </table>
   `;
 
@@ -2757,13 +2792,58 @@ async function sendAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic
     html
   });
 
-  app.log.info({ customerId, deviceId, alarmType, recipients: recipients.length }, "Alarm email sent");
+  app.log.info({ customerId, alarms: alarms.length, devices: uniqueDeviceCount, recipients: recipients.length }, "Alarm email batch sent");
+}
+
+async function flushAlarmEmailBatch(customerId) {
+  const batch = alarmEmailBatches.get(customerId);
+
+  if (!batch) {
+    return;
+  }
+
+  alarmEmailBatches.delete(customerId);
+
+  try {
+    await sendAlarmEmailBatch(customerId, batch.alarms);
+  } catch (error) {
+    app.log.error({ error, customerId, alarms: batch.alarms.length }, "Failed to send alarm email batch");
+  }
 }
 
 function queueAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic) {
-  sendAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic).catch((error) => {
-    app.log.error({ error, customerId, deviceId, alarmType }, "Failed to send alarm email");
+  let batch = alarmEmailBatches.get(customerId);
+
+  if (!batch) {
+    batch = {
+      alarms: [],
+      timer: null
+    };
+    alarmEmailBatches.set(customerId, batch);
+  }
+
+  batch.alarms.push({
+    deviceId,
+    alarmType,
+    alarmValue,
+    topic,
+    createdAt: new Date().toISOString()
   });
+
+  if (!batch.timer) {
+    batch.timer = setTimeout(() => {
+      flushAlarmEmailBatch(customerId);
+    }, ALERT_EMAIL_BATCH_MS);
+
+    if (typeof batch.timer.unref === "function") {
+      batch.timer.unref();
+    }
+  }
+
+  app.log.info(
+    { customerId, deviceId, alarmType, queued: batch.alarms.length, batchMs: ALERT_EMAIL_BATCH_MS },
+    "Alarm email queued"
+  );
 }
 
 function topicDeviceId(topic) {
