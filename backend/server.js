@@ -381,6 +381,7 @@ const dashboardHtml = String.raw`<!doctype html>
       <strong>Password change required</strong>
       <input id="currentPasswordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Current password">
       <input id="newPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="New password">
+      <input id="confirmPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="Confirm new password">
       <button id="changePasswordButton">Change password</button>
       <span id="passwordChangeStatus"></span>
     </section>
@@ -459,6 +460,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const passwordChangeSection = document.getElementById("passwordChangeSection");
     const currentPasswordInput = document.getElementById("currentPasswordInput");
     const newPasswordInput = document.getElementById("newPasswordInput");
+    const confirmPasswordInput = document.getElementById("confirmPasswordInput");
     const changePasswordButton = document.getElementById("changePasswordButton");
     const passwordChangeStatus = document.getElementById("passwordChangeStatus");
     const deviceCount = document.getElementById("deviceCount");
@@ -1077,13 +1079,18 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function changePassword() {
+      if (newPasswordInput.value !== confirmPasswordInput.value) {
+        throw new Error("New passwords do not match");
+      }
+
       passwordChangeStatus.textContent = "saving";
       const response = await fetch("/api/v1/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           current_password: currentPasswordInput.value,
-          new_password: newPasswordInput.value
+          new_password: newPasswordInput.value,
+          new_password_confirm: confirmPasswordInput.value
         })
       });
 
@@ -1095,6 +1102,7 @@ const dashboardHtml = String.raw`<!doctype html>
       const body = await response.json();
       currentPasswordInput.value = "";
       newPasswordInput.value = "";
+      confirmPasswordInput.value = "";
       passwordChangeStatus.textContent = "changed";
       setCurrentUser(body.user);
       setTimeout(() => {
@@ -2726,12 +2734,21 @@ app.post("/api/v1/change-password", { preHandler: checkAuth }, async (req, reply
 
   const currentPassword = String(req.body?.current_password || "");
   const newPassword = String(req.body?.new_password || "");
+  const newPasswordConfirm = String(req.body?.new_password_confirm || "");
 
   if (newPassword.length < 10) {
     reply.code(400);
     return {
       ok: false,
       error: "New password must be at least 10 characters"
+    };
+  }
+
+  if (newPassword !== newPasswordConfirm) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "New passwords do not match"
     };
   }
 
