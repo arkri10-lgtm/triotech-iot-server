@@ -11,6 +11,7 @@ await app.register(websocket);
 
 const PORT = Number(process.env.PORT || 3000);
 const API_TOKEN = process.env.API_TOKEN || "";
+const DEVICE_API_TOKEN = process.env.DEVICE_API_TOKEN || "";
 const DEVICE_OFFLINE_GRACE_MS = Number(process.env.DEVICE_OFFLINE_GRACE_MS || 120000);
 const DATABASE_URL = process.env.DATABASE_URL || "";
 
@@ -720,6 +721,23 @@ function checkAuth(req, reply, done) {
   done();
 }
 
+function checkDeviceAuth(req, reply, done) {
+  const tokenHeader = req.headers["x-device-token"];
+  const token = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
+
+  if (!DEVICE_API_TOKEN) {
+    reply.code(503).send({ error: "Device API token is not configured" });
+    return;
+  }
+
+  if (token !== DEVICE_API_TOKEN) {
+    reply.code(401).send({ error: "Unauthorized" });
+    return;
+  }
+
+  done();
+}
+
 function numberOrNull(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
@@ -753,6 +771,30 @@ function settingsForDevice(deviceId) {
     desired_high_humidity: null,
     desired_telemetry_interval_sec: null,
     settings_updated_at: null
+  };
+}
+
+function isValidDeviceId(deviceId) {
+  return /^[A-Za-z0-9_-]+$/.test(deviceId);
+}
+
+function desiredSettingsResponse(deviceId) {
+  const settings = settingsForDevice(deviceId);
+  const hasSettings = settings.settings_updated_at !== null ||
+    settings.desired_low_temperature !== null ||
+    settings.desired_high_temperature !== null ||
+    settings.desired_high_humidity !== null ||
+    settings.desired_telemetry_interval_sec !== null;
+
+  return {
+    ok: true,
+    device_id: deviceId,
+    has_settings: hasSettings,
+    low_temperature: settings.desired_low_temperature,
+    high_temperature: settings.desired_high_temperature,
+    high_humidity: settings.desired_high_humidity,
+    telemetry_interval_sec: settings.desired_telemetry_interval_sec,
+    updated_at: settings.settings_updated_at
   };
 }
 
@@ -1431,10 +1473,24 @@ app.get("/api/v1/devices", { preHandler: checkAuth }, async () => {
   return getDashboardState().devices;
 });
 
+app.get("/api/v1/devices/:deviceId/settings/device", { preHandler: checkDeviceAuth }, async (req, reply) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+
+  if (!isValidDeviceId(deviceId)) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Invalid device ID"
+    };
+  }
+
+  return desiredSettingsResponse(deviceId);
+});
+
 app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async (req, reply) => {
   const deviceId = String(req.params.deviceId || "").trim();
 
-  if (!/^[A-Za-z0-9_-]+$/.test(deviceId)) {
+  if (!isValidDeviceId(deviceId)) {
     reply.code(400);
     return {
       ok: false,
@@ -1457,7 +1513,7 @@ app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async 
 app.patch("/api/v1/devices/:deviceId/settings", { preHandler: checkAuth }, async (req, reply) => {
   const deviceId = String(req.params.deviceId || "").trim();
 
-  if (!/^[A-Za-z0-9_-]+$/.test(deviceId)) {
+  if (!isValidDeviceId(deviceId)) {
     reply.code(400);
     return {
       ok: false,
