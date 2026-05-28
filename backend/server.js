@@ -19,6 +19,9 @@ const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
 const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "customer-1";
 const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const ALLOWED_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace"]);
+const VALID_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace", "past_due", "suspended", "canceled"]);
+const VALID_SUBSCRIPTION_PLANS = new Set(["monthly", "yearly", "trial", "manual"]);
 
 const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 
@@ -1256,7 +1259,8 @@ function publicUser(user) {
     email: user.email,
     role: user.role,
     customer_id: user.customer_id,
-    must_change_password: Boolean(user.must_change_password)
+    must_change_password: Boolean(user.must_change_password),
+    subscription: user.subscription || null
   };
 }
 
@@ -1272,6 +1276,97 @@ function apiTokenUser() {
 
 function isAdminUser(user) {
   return Boolean(user && user.role === "admin");
+}
+
+function subscriptionFromRow(row) {
+  if (!row || row.role === "admin") {
+    return null;
+  }
+
+  return {
+    status: row.subscription_status || "active",
+    plan: row.subscription_plan || "monthly",
+    paid_until: row.paid_until ? new Date(row.paid_until).toISOString() : null,
+    login_enabled: row.login_enabled !== false
+  };
+}
+
+function userFromRow(row) {
+  return {
+    id: row.id,
+    customer_id: row.customer_id,
+    email: row.email,
+    role: row.role,
+    must_change_password: row.must_change_password,
+    subscription: subscriptionFromRow(row)
+  };
+}
+
+function subscriptionAllowsLogin(subscription) {
+  if (!subscription) {
+    return false;
+  }
+
+  if (!subscription.login_enabled) {
+    return false;
+  }
+
+  if (!ALLOWED_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+    return false;
+  }
+
+  if (!subscription.paid_until) {
+    return true;
+  }
+
+  return Date.parse(subscription.paid_until) >= Date.now();
+}
+
+function userCanUseDashboard(user) {
+  if (!user) {
+    return false;
+  }
+
+  if (isAdminUser(user)) {
+    return true;
+  }
+
+  return subscriptionAllowsLogin(user.subscription);
+}
+
+async function refreshUserForAccess(user) {
+  if (!user || user.id === "api-token-admin" || !db) {
+    return user;
+  }
+
+  const result = await db.query(
+    `
+      SELECT
+        u.id,
+        u.customer_id,
+        u.email,
+        u.role,
+        u.must_change_password,
+        u.active,
+        c.subscription_status,
+        c.subscription_plan,
+        c.paid_until,
+        c.login_enabled
+      FROM app_users u
+      LEFT JOIN customers c ON c.id = u.customer_id
+      WHERE u.id = $1
+      LIMIT 1
+    `,
+    [user.id]
+  );
+
+  const row = result.rows[0];
+
+  if (!row || !row.active) {
+    return null;
+  }
+
+  return userFromRow(row);
 }
 
 function createDashboardSession(user) {
@@ -1345,16 +1440,24 @@ function parseCookies(cookieHeader = "") {
   return cookies;
 }
 
-function checkAuth(req, reply, done) {
-  const user = getRequestUser(req);
+async function checkAuth(req, reply) {
+  const requestUser = getRequestUser(req);
+  const user = await refreshUserForAccess(requestUser);
 
   if (!user) {
     reply.code(401).send({ error: "Unauthorized" });
     return;
   }
 
+  if (!userCanUseDashboard(user)) {
+    reply.code(402).send({
+      error: "Subscription inactive",
+      subscription: user.subscription || null
+    });
+    return;
+  }
+
   req.user = user;
-  done();
 }
 
 function checkDeviceAuth(req, reply, done) {
@@ -1568,10 +1671,19 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS customers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      subscription_status TEXT NOT NULL DEFAULT 'active',
+      subscription_plan TEXT NOT NULL DEFAULT 'monthly',
+      paid_until TIMESTAMPTZ,
+      login_enabled BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+
+  await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'active'");
+  await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS subscription_plan TEXT NOT NULL DEFAULT 'monthly'");
+  await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS paid_until TIMESTAMPTZ");
+  await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS login_enabled BOOLEAN NOT NULL DEFAULT true");
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS app_users (
@@ -1780,6 +1892,112 @@ async function ensureDeviceRegistered(deviceId) {
   };
 
   return deviceRegistry[deviceId];
+}
+
+function customerFromRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    subscription_status: row.subscription_status,
+    subscription_plan: row.subscription_plan,
+    paid_until: row.paid_until ? new Date(row.paid_until).toISOString() : null,
+    login_enabled: row.login_enabled !== false,
+    updated_at: row.updated_at
+  };
+}
+
+async function listCustomers() {
+  if (!db) {
+    return [];
+  }
+
+  const result = await db.query(`
+    SELECT
+      id,
+      name,
+      subscription_status,
+      subscription_plan,
+      paid_until,
+      login_enabled,
+      updated_at
+    FROM customers
+    ORDER BY name, id
+  `);
+
+  return result.rows.map(customerFromRow);
+}
+
+async function saveCustomerSubscription(customerId, values) {
+  if (!db) {
+    const error = new Error("Database is not configured");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const status = String(values.subscription_status || "").trim().toLowerCase();
+  const plan = String(values.subscription_plan || "").trim().toLowerCase();
+  const loginEnabled = values.login_enabled === undefined
+    ? true
+    : values.login_enabled === true || values.login_enabled === "true";
+  const paidUntilInput = values.paid_until === undefined || values.paid_until === null
+    ? null
+    : String(values.paid_until).trim();
+
+  if (!VALID_SUBSCRIPTION_STATUSES.has(status)) {
+    const error = new Error("Invalid subscription status");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!VALID_SUBSCRIPTION_PLANS.has(plan)) {
+    const error = new Error("Invalid subscription plan");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let paidUntil = null;
+
+  if (paidUntilInput) {
+    const parsed = new Date(paidUntilInput);
+
+    if (Number.isNaN(parsed.getTime())) {
+      const error = new Error("Invalid paid_until date");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    paidUntil = parsed.toISOString();
+  }
+
+  const result = await db.query(
+    `
+      UPDATE customers
+      SET
+        subscription_status = $2,
+        subscription_plan = $3,
+        paid_until = $4,
+        login_enabled = $5,
+        updated_at = now()
+      WHERE id = $1
+      RETURNING
+        id,
+        name,
+        subscription_status,
+        subscription_plan,
+        paid_until,
+        login_enabled,
+        updated_at
+    `,
+    [customerId, status, plan, paidUntil, loginEnabled]
+  );
+
+  if (result.rowCount === 0) {
+    const error = new Error("Customer not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return customerFromRow(result.rows[0]);
 }
 
 function topicDeviceId(topic) {
@@ -2419,8 +2637,20 @@ app.post("/api/v1/login", async (req, reply) => {
 
   const result = await db.query(
     `
-      SELECT id, customer_id, email, password_hash, role, must_change_password, active
-      FROM app_users
+      SELECT
+        u.id,
+        u.customer_id,
+        u.email,
+        u.password_hash,
+        u.role,
+        u.must_change_password,
+        u.active,
+        c.subscription_status,
+        c.subscription_plan,
+        c.paid_until,
+        c.login_enabled
+      FROM app_users u
+      LEFT JOIN customers c ON c.id = u.customer_id
       WHERE lower(email) = lower($1)
       LIMIT 1
     `,
@@ -2437,13 +2667,17 @@ app.post("/api/v1/login", async (req, reply) => {
     };
   }
 
-  const user = {
-    id: row.id,
-    customer_id: row.customer_id,
-    email: row.email,
-    role: row.role,
-    must_change_password: row.must_change_password
-  };
+  const user = userFromRow(row);
+
+  if (!userCanUseDashboard(user)) {
+    reply.code(402);
+    return {
+      ok: false,
+      error: "Subscription inactive",
+      subscription: user.subscription || null
+    };
+  }
+
   const sessionId = createDashboardSession(user);
 
   reply.header("Set-Cookie", sessionCookie(sessionId, req));
@@ -2557,6 +2791,56 @@ app.get("/api/v1/state", { preHandler: checkAuth }, async (req) => {
 
 app.get("/api/v1/devices", { preHandler: checkAuth }, async (req) => {
   return getDashboardState(req.user).devices;
+});
+
+app.get("/api/v1/admin/customers", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  return {
+    ok: true,
+    customers: await listCustomers()
+  };
+});
+
+app.patch("/api/v1/admin/customers/:customerId/subscription", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  const customerId = String(req.params.customerId || "").trim();
+
+  if (!customerId) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Customer ID is required"
+    };
+  }
+
+  try {
+    const customer = await saveCustomerSubscription(customerId, req.body || {});
+
+    return {
+      ok: true,
+      customer
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
 });
 
 app.get("/api/v1/devices/:deviceId/settings/device", { preHandler: checkDeviceAuth }, async (req, reply) => {
@@ -2684,22 +2968,34 @@ app.post("/api/v1/mqtt/publish", { preHandler: checkAuth }, async (req, reply) =
 });
 
 app.get("/api/v1/ws", { websocket: true }, (socket, req) => {
-  const user = getSessionUser(req);
+  const sessionUser = getSessionUser(req);
 
-  if (!user) {
-    socket.close(1008, "Unauthorized");
-    return;
-  }
+  (async () => {
+    const user = await refreshUserForAccess(sessionUser);
 
-  wsClients.set(socket, user);
+    if (!user) {
+      socket.close(1008, "Unauthorized");
+      return;
+    }
 
-  socket.send(JSON.stringify({
-    type: "state",
-    data: getDashboardState(user)
-  }));
+    if (!userCanUseDashboard(user)) {
+      socket.close(1008, "Subscription inactive");
+      return;
+    }
 
-  socket.on("close", () => {
-    wsClients.delete(socket);
+    wsClients.set(socket, user);
+
+    socket.send(JSON.stringify({
+      type: "state",
+      data: getDashboardState(user)
+    }));
+
+    socket.on("close", () => {
+      wsClients.delete(socket);
+    });
+  })().catch((error) => {
+    app.log.error({ error }, "Failed to authorize websocket");
+    socket.close(1011, "Server error");
   });
 });
 
