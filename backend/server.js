@@ -174,6 +174,23 @@ const dashboardHtml = String.raw`<!doctype html>
       color: var(--text);
     }
 
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: var(--muted);
+    }
+
+    .filter-bar label {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .filter-input {
+      width: min(520px, 70vw);
+    }
+
     .table-wrap {
       overflow: auto;
       background: var(--panel);
@@ -324,6 +341,11 @@ const dashboardHtml = String.raw`<!doctype html>
     </div>
 
     <section id="deviceSection">
+      <div class="filter-bar">
+        <label for="deviceFilter">Filter</label>
+        <input id="deviceFilter" class="filter-input" type="search" autocomplete="off" placeholder="Search device ID, address, phone, status, power, alarm...">
+        <button id="clearDeviceFilter" type="button">Clear</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -388,6 +410,8 @@ const dashboardHtml = String.raw`<!doctype html>
     const alarmSection = document.getElementById("alarmSection");
     const devicesLink = document.getElementById("devicesLink");
     const alarmsLink = document.getElementById("alarmsLink");
+    const deviceFilter = document.getElementById("deviceFilter");
+    const clearDeviceFilter = document.getElementById("clearDeviceFilter");
 
     let ws = null;
     const pendingContactEdits = new Map();
@@ -398,6 +422,7 @@ const dashboardHtml = String.raw`<!doctype html>
     let latestDevices = [];
     let latestAlarms = [];
     tokenInput.value = localStorage.getItem("snjallhus_api_token") || "";
+    deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
 
     deviceSection.hidden = isAlarmPage;
     alarmSection.hidden = !isAlarmPage;
@@ -532,6 +557,48 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function sortedDevices(devices) {
       return [...devices].sort(compareDevices);
+    }
+
+    function searchText(value) {
+      return String(value ?? "").toLowerCase();
+    }
+
+    function deviceFilterText(device) {
+      const alarmText = Object.entries(device.alarms || {})
+        .map(([alarm, state]) => alarm + " " + state)
+        .join(" ");
+
+      return [
+        device.device_id,
+        device.phone_number,
+        device.address,
+        device.connection_state || device.status,
+        device.status,
+        device.temperature,
+        device.humidity,
+        device.power_source,
+        sortValue(device, "ble_power_monitor_installed"),
+        device.ble_power_monitor_connection,
+        displaySetting(device, "desired_low_temperature", "low_temperature"),
+        displaySetting(device, "desired_high_temperature", "high_temperature"),
+        displaySetting(device, "desired_high_humidity", "high_humidity"),
+        displaySetting(device, "desired_telemetry_interval_sec", "telemetry_interval_sec"),
+        device.alarm_state,
+        alarmText
+      ].map(searchText).join(" ");
+    }
+
+    function filteredDevices(devices) {
+      const terms = deviceFilter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+      if (!terms.length) {
+        return devices;
+      }
+
+      return devices.filter((device) => {
+        const haystack = deviceFilterText(device);
+        return terms.every((term) => haystack.includes(term));
+      });
     }
 
     function updateSortIndicators() {
@@ -699,7 +766,10 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function renderDevices(devices) {
       deviceRows.textContent = "";
-      deviceCount.textContent = String(devices.length);
+      const visibleDevices = filteredDevices(devices);
+      deviceCount.textContent = visibleDevices.length === devices.length
+        ? String(devices.length)
+        : visibleDevices.length + " / " + devices.length;
       updateSortIndicators();
 
       if (!devices.length) {
@@ -711,7 +781,16 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const device of sortedDevices(devices)) {
+      if (!visibleDevices.length) {
+        const row = document.createElement("tr");
+        cell(row, "No devices match the current filter.");
+        row.firstChild.colSpan = 16;
+        row.firstChild.className = "empty";
+        deviceRows.appendChild(row);
+        return;
+      }
+
+      for (const device of sortedDevices(visibleDevices)) {
         const row = document.createElement("tr");
         if (device.alarm_state === "ALARM") {
           row.className = "alarm";
@@ -881,6 +960,18 @@ const dashboardHtml = String.raw`<!doctype html>
     });
 
     refresh.addEventListener("click", loadState);
+
+    deviceFilter.addEventListener("input", () => {
+      localStorage.setItem("snjallhus_device_filter", deviceFilter.value);
+      renderDevices(latestDevices);
+    });
+
+    clearDeviceFilter.addEventListener("click", () => {
+      deviceFilter.value = "";
+      localStorage.removeItem("snjallhus_device_filter");
+      renderDevices(latestDevices);
+      deviceFilter.focus();
+    });
 
     document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
       button.addEventListener("click", () => {
