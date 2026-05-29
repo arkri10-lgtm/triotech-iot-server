@@ -1137,12 +1137,20 @@ const dashboardHtml = String.raw`<!doctype html>
       return Boolean(currentUser && currentUser.must_change_password);
     }
 
+    function isSuperUser() {
+      return Boolean(currentUser && currentUser.role === "super_admin");
+    }
+
+    function isAdminUser() {
+      return Boolean(currentUser && (currentUser.role === "admin" || currentUser.role === "super_admin"));
+    }
+
     function applyProtectedSectionVisibility() {
       const blocked = mustChangePasswordBeforeUse();
       deviceSection.hidden = blocked || !isDevicePage;
       deviceDetailSection.hidden = blocked || !isDeviceDetailPage;
       alarmSection.hidden = blocked || !isAlarmPage;
-      settingsSection.hidden = blocked || !isSettingsPage;
+      settingsSection.hidden = blocked || !isSettingsPage || !isAdminUser();
 
       if (blocked) {
         superAdminSection.hidden = true;
@@ -1876,6 +1884,10 @@ const dashboardHtml = String.raw`<!doctype html>
       return input;
     }
 
+    function settingText(device, desiredKey, activeKey, unit) {
+      return fmt(displaySetting(device, desiredKey, activeKey), unit ? " " + unit : "");
+    }
+
     function settingWithUnit(input, unit) {
       const wrap = document.createElement("span");
       const suffix = document.createElement("span");
@@ -2421,6 +2433,8 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function renderDevices(devices) {
       deviceRows.textContent = "";
+      const canEdit = isAdminUser();
+      saveHeader.hidden = !canEdit;
       const visibleDevices = filteredDevices(devices);
       deviceCount.textContent = visibleDevices.length === devices.length
         ? String(devices.length)
@@ -2430,7 +2444,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!devices.length) {
         const row = document.createElement("tr");
         cell(row, t("noDevicesReceived"));
-        row.firstChild.colSpan = 16;
+        row.firstChild.colSpan = canEdit ? 16 : 15;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
         return;
@@ -2439,7 +2453,7 @@ const dashboardHtml = String.raw`<!doctype html>
       if (!visibleDevices.length) {
         const row = document.createElement("tr");
         cell(row, t("noDeviceMatches"));
-        row.firstChild.colSpan = 16;
+        row.firstChild.colSpan = canEdit ? 16 : 15;
         row.firstChild.className = "empty";
         deviceRows.appendChild(row);
         return;
@@ -2464,26 +2478,42 @@ const dashboardHtml = String.raw`<!doctype html>
 
         const status = device.connection_state || device.status;
         const statusKind = device.is_offline ? "warn" : (status === "online" ? "ok" : "warn");
-        const pendingContact = pendingContactEdits.get(device.device_id) || {};
-        const phoneInput = contactInput(pendingContact.phone_number ?? device.phone_number, "phone-input");
-        const addressInput = contactInput(pendingContact.address ?? device.address, "address-input");
-        phoneInput.addEventListener("input", () => setPendingContact(device.device_id, "phone_number", phoneInput.value));
-        addressInput.addEventListener("input", () => setPendingContact(device.device_id, "address", addressInput.value));
-        const pendingSettings = pendingSettingEdits.get(device.device_id) || {};
-        const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input", 1, "C");
-        const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input", 1, "C");
-        const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input", 1, "%");
-        const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input", null, "s");
-        const rowSaveButton = document.createElement("button");
-        rowSaveButton.className = "save-row";
-        rowSaveButton.textContent = t("save");
-        lowInput.addEventListener("input", () => setPendingSetting(device.device_id, "low_temperature", lowInput.value));
-        highInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_temperature", highInput.value));
-        humidityInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_humidity", humidityInput.value));
-        intervalInput.addEventListener("input", () => setPendingSetting(device.device_id, "telemetry_interval_sec", intervalInput.value));
-        rowSaveButton.addEventListener("click", () => {
-          saveRow(device.device_id, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, rowSaveButton);
-        });
+        let phoneCell = device.phone_number || "";
+        let addressCell = device.address || "";
+        let lowCell = settingText(device, "desired_low_temperature", "low_temperature", "C");
+        let highCell = settingText(device, "desired_high_temperature", "high_temperature", "C");
+        let humidityCell = settingText(device, "desired_high_humidity", "high_humidity", "%");
+        let intervalCell = settingText(device, "desired_telemetry_interval_sec", "telemetry_interval_sec", "s");
+        let rowSaveButton = null;
+
+        if (canEdit) {
+          const pendingContact = pendingContactEdits.get(device.device_id) || {};
+          const phoneInput = contactInput(pendingContact.phone_number ?? device.phone_number, "phone-input");
+          const addressInput = contactInput(pendingContact.address ?? device.address, "address-input");
+          phoneInput.addEventListener("input", () => setPendingContact(device.device_id, "phone_number", phoneInput.value));
+          addressInput.addEventListener("input", () => setPendingContact(device.device_id, "address", addressInput.value));
+          const pendingSettings = pendingSettingEdits.get(device.device_id) || {};
+          const lowInput = settingInput(pendingSettings.low_temperature ?? device.desired_low_temperature ?? device.low_temperature, device.low_temperature, "low-temp-input", 1, "C");
+          const highInput = settingInput(pendingSettings.high_temperature ?? device.desired_high_temperature ?? device.high_temperature, device.high_temperature, "high-temp-input", 1, "C");
+          const humidityInput = settingInput(pendingSettings.high_humidity ?? device.desired_high_humidity ?? device.high_humidity, device.high_humidity, "high-humidity-input", 1, "%");
+          const intervalInput = settingInput(pendingSettings.telemetry_interval_sec ?? device.desired_telemetry_interval_sec ?? device.telemetry_interval_sec, device.telemetry_interval_sec, "interval-input", null, "s");
+          rowSaveButton = document.createElement("button");
+          rowSaveButton.className = "save-row";
+          rowSaveButton.textContent = t("save");
+          lowInput.addEventListener("input", () => setPendingSetting(device.device_id, "low_temperature", lowInput.value));
+          highInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_temperature", highInput.value));
+          humidityInput.addEventListener("input", () => setPendingSetting(device.device_id, "high_humidity", humidityInput.value));
+          intervalInput.addEventListener("input", () => setPendingSetting(device.device_id, "telemetry_interval_sec", intervalInput.value));
+          rowSaveButton.addEventListener("click", () => {
+            saveRow(device.device_id, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, rowSaveButton);
+          });
+          phoneCell = phoneInput;
+          addressCell = addressInput;
+          lowCell = settingWithUnit(lowInput, "C");
+          highCell = settingWithUnit(highInput, "C");
+          humidityCell = settingWithUnit(humidityInput, "%");
+          intervalCell = settingWithUnit(intervalInput, "s");
+        }
 
         const deviceLink = document.createElement("a");
         deviceLink.className = "device-link";
@@ -2491,8 +2521,8 @@ const dashboardHtml = String.raw`<!doctype html>
         deviceLink.textContent = device.device_id;
 
         cell(row, deviceLink);
-        cell(row, phoneInput);
-        cell(row, addressInput);
+        cell(row, phoneCell);
+        cell(row, addressCell);
         cell(row, badge(status, statusKind));
         cell(row, fmtTime(device.last_seen) + (device.seconds_since_seen !== null ? " (" + fmtAge(device.seconds_since_seen) + ")" : ""));
         cell(row, fmt(device.temperature, " C"));
@@ -2500,12 +2530,14 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, device.power_source);
         cell(row, device.ble_power_monitor_installed === true ? "yes" : (device.ble_power_monitor_installed === false ? "no" : ""));
         cell(row, device.ble_power_monitor_connection || "");
-        cell(row, settingWithUnit(lowInput, "C"));
-        cell(row, settingWithUnit(highInput, "C"));
-        cell(row, settingWithUnit(humidityInput, "%"));
-        cell(row, settingWithUnit(intervalInput, "s"));
+        cell(row, lowCell);
+        cell(row, highCell);
+        cell(row, humidityCell);
+        cell(row, intervalCell);
         cell(row, device.alarm_state ? badge(device.alarm_state, device.alarm_state === "ALARM" ? "alarm" : "ok") : "");
-        cell(row, rowSaveButton);
+        if (canEdit) {
+          cell(row, rowSaveButton);
+        }
         deviceRows.appendChild(row);
       }
     }
@@ -2907,10 +2939,6 @@ const dashboardHtml = String.raw`<!doctype html>
       lastUpdate.textContent = fmtClock(new Date());
     }
 
-    function isSuperUser() {
-      return Boolean(currentUser && currentUser.role === "super_admin");
-    }
-
     async function loadSettingsCustomers() {
       if (!isSettingsPage || !currentUser || !isSuperUser()) {
         settingsCustomerWrap.hidden = true;
@@ -2952,7 +2980,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function loadNotificationSettings() {
-      if (!isSettingsPage || !currentUser || mustChangePasswordBeforeUse()) {
+      if (!isSettingsPage || !currentUser || mustChangePasswordBeforeUse() || !isAdminUser()) {
         return;
       }
 
@@ -2979,7 +3007,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function saveNotificationEmailSettings() {
-      if (!isSettingsPage || !currentUser) {
+      if (!isSettingsPage || !currentUser || !isAdminUser()) {
         return;
       }
 
@@ -3172,7 +3200,7 @@ const dashboardHtml = String.raw`<!doctype html>
       passwordResetSection.hidden = !isPasswordResetPage;
       devicesLink.hidden = mustChangePassword;
       alarmsLink.hidden = mustChangePassword;
-      settingsLink.hidden = mustChangePassword;
+      settingsLink.hidden = mustChangePassword || !isAdminUser();
       applyProtectedSectionVisibility();
 
       if (!loggedIn || mustChangePassword) {
@@ -7620,6 +7648,14 @@ app.delete("/api/v1/admin/devices/:deviceId", { preHandler: checkAuth }, async (
 });
 
 app.get("/api/v1/settings/notification-emails", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
   try {
     const customerId = notificationSettingsCustomerId(req.user, req.query?.customer_id);
     await assertCustomerExists(customerId);
@@ -7639,6 +7675,14 @@ app.get("/api/v1/settings/notification-emails", { preHandler: checkAuth }, async
 });
 
 app.put("/api/v1/settings/notification-emails", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
   try {
     const customerId = notificationSettingsCustomerId(req.user, req.body?.customer_id);
     const emails = parseNotificationEmails(req.body?.emails);
@@ -7684,6 +7728,14 @@ app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async 
     };
   }
 
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
   if (isSuperUser(req.user)) {
     await ensureDeviceRegistered(deviceId);
   }
@@ -7716,6 +7768,14 @@ app.patch("/api/v1/devices/:deviceId/settings", { preHandler: checkAuth }, async
     return {
       ok: false,
       error: "Invalid device ID"
+    };
+  }
+
+  if (!isAdminUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
     };
   }
 
