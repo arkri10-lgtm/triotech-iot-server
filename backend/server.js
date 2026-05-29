@@ -83,12 +83,16 @@ const dashboardHtml = String.raw`<!doctype html>
       --line: #41506a;
       --text: #eef7ff;
       --muted: #a9b8cc;
-      --accent: #45e4ee;
-      --accent-dark: #1fb9c7;
-      --alarm: #5a2730;
-      --alarm-line: #ff6b6b;
+      --accent: #7dd3fc;
+      --accent-strong: #38bdf8;
+      --accent-dark: #0e7490;
+      --alarm: #3f1f25;
+      --alarm-line: #ef4444;
+      --offline: #283044;
+      --warn-bg: #3a3323;
+      --warn-line: #f59e0b;
       --ok: #42df95;
-      --warn: #ffd166;
+      --warn: #f6c453;
     }
 
     * {
@@ -101,6 +105,11 @@ const dashboardHtml = String.raw`<!doctype html>
       color: var(--text);
       font-family: Arial, Helvetica, sans-serif;
       font-size: 14px;
+    }
+
+    a,
+    a:visited {
+      color: var(--accent);
     }
 
     header {
@@ -159,7 +168,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     .nav-links a.active {
-      border-color: var(--accent);
+      border-color: var(--accent-strong);
       color: var(--accent);
       font-weight: 700;
     }
@@ -182,10 +191,10 @@ const dashboardHtml = String.raw`<!doctype html>
 
     button {
       height: 34px;
-      border: 1px solid var(--accent-dark);
+      border: 1px solid var(--accent-strong);
       border-radius: 6px;
       background: var(--accent-dark);
-      color: #06131c;
+      color: #ecfeff;
       padding: 0 12px;
       font: inherit;
       cursor: pointer;
@@ -295,8 +304,8 @@ const dashboardHtml = String.raw`<!doctype html>
       flex-wrap: wrap;
       margin-bottom: 14px;
       padding: 10px;
-      background: #4b3d22;
-      border: 1px solid #9f7e31;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-line);
       border-radius: 8px;
     }
 
@@ -379,11 +388,11 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     tr.offline {
-      background: #4b3d22;
+      background: var(--offline);
     }
 
     tr.offline td:first-child {
-      border-left: 4px solid var(--warn);
+      border-left: 4px solid var(--warn-line);
     }
 
     .badge {
@@ -404,12 +413,12 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     .badge.alarm {
-      background: #5a2730;
+      background: var(--alarm);
       color: #ffd5d5;
     }
 
     .badge.warn {
-      background: #4b3d22;
+      background: var(--warn-bg);
       color: var(--warn);
     }
 
@@ -479,6 +488,10 @@ const dashboardHtml = String.raw`<!doctype html>
       text-decoration: none;
     }
 
+    .device-link:visited {
+      color: var(--accent);
+    }
+
     .device-link:hover {
       text-decoration: underline;
     }
@@ -537,7 +550,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     .range-button.active {
       background: var(--accent-dark);
-      border-color: var(--accent-dark);
+      border-color: var(--accent-strong);
     }
 
     .chart-wrap {
@@ -1927,7 +1940,7 @@ const dashboardHtml = String.raw`<!doctype html>
         telemetryChart.appendChild(svgElement("polyline", {
           points: tempPoints,
           fill: "none",
-          stroke: "#ff6b6b",
+          stroke: "#ef4444",
           "stroke-width": 2.5
         }));
       }
@@ -1936,7 +1949,7 @@ const dashboardHtml = String.raw`<!doctype html>
         telemetryChart.appendChild(svgElement("polyline", {
           points: humidityPoints,
           fill: "none",
-          stroke: "#45e4ee",
+          stroke: "#38bdf8",
           "stroke-width": 2.5
         }));
       }
@@ -1951,11 +1964,11 @@ const dashboardHtml = String.raw`<!doctype html>
       });
       telemetryChart.appendChild(axis);
 
-      const legendTemp = svgElement("text", { x: left, y: height - 10, fill: "#ff6b6b", "font-size": 12 });
+      const legendTemp = svgElement("text", { x: left, y: height - 10, fill: "#ef4444", "font-size": 12 });
       legendTemp.textContent = t("chartLegendTemp") + " (C)";
       telemetryChart.appendChild(legendTemp);
 
-      const legendHumidity = svgElement("text", { x: left + 120, y: height - 10, fill: "#45e4ee", "font-size": 12 });
+      const legendHumidity = svgElement("text", { x: left + 120, y: height - 10, fill: "#38bdf8", "font-size": 12 });
       legendHumidity.textContent = t("chartLegendHumidity") + " (%)";
       telemetryChart.appendChild(legendHumidity);
     }
@@ -2655,7 +2668,7 @@ function publicPageHtml(pageName = "home") {
       --line: #41506a;
       --text: #eef7ff;
       --muted: #a9b8cc;
-      --brand: #45e4ee;
+      --brand: #7dd3fc;
       --brand-dark: #7ff5fb;
     }
 
@@ -2670,6 +2683,11 @@ function publicPageHtml(pageName = "home") {
       font-family: Arial, Helvetica, sans-serif;
       font-size: 16px;
       line-height: 1.55;
+    }
+
+    a,
+    a:visited {
+      color: var(--brand);
     }
 
     header {
@@ -2801,9 +2819,9 @@ function publicPageHtml(pageName = "home") {
       min-height: 40px;
       border-radius: 6px;
       padding: 0 14px;
-      border: 1px solid #1fb9c7;
-      background: #1fb9c7;
-      color: #06131c;
+      border: 1px solid #38bdf8;
+      background: #0e7490;
+      color: #ecfeff;
       text-decoration: none;
       font-weight: 700;
     }
