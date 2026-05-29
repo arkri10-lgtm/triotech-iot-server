@@ -939,10 +939,11 @@ const dashboardHtml = String.raw`<!doctype html>
                   <th id="adminDeviceCustomerHeader">Vi&eth;skiptavinur</th>
                   <th id="adminDeviceUpdatedHeader">Uppf&aelig;rt</th>
                   <th id="adminDeviceSaveHeader">Vista</th>
+                  <th id="adminDeviceDeleteHeader">Fjarl&aelig;gja</th>
                 </tr>
               </thead>
               <tbody id="adminDeviceRows">
-                <tr><td colspan="4" class="empty">Engin t&aelig;ki.</td></tr>
+                <tr><td colspan="5" class="empty">Engin t&aelig;ki.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1051,6 +1052,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const adminDeviceCustomerHeader = document.getElementById("adminDeviceCustomerHeader");
     const adminDeviceUpdatedHeader = document.getElementById("adminDeviceUpdatedHeader");
     const adminDeviceSaveHeader = document.getElementById("adminDeviceSaveHeader");
+    const adminDeviceDeleteHeader = document.getElementById("adminDeviceDeleteHeader");
     const deviceDetailSection = document.getElementById("deviceDetailSection");
     const deviceDetailBack = document.getElementById("deviceDetailBack");
     const deviceDetailTitle = document.getElementById("deviceDetailTitle");
@@ -1230,11 +1232,12 @@ const dashboardHtml = String.raw`<!doctype html>
         deleteText: "Ey\u00f0a",
         create: "B\u00faa til",
         addUser: "B\u00e6ta vi\u00f0",
-        assignDevice: "Vista",
+        assignDevice: "B\u00e6ta vi\u00f0",
         userRole: "Hlutverk",
         activeUser: "Virkur",
         mustChangePassword: "Skiptir um lykilor\u00f0",
         resetUserPassword: "N\u00fdtt lykilor\u00f0",
+        removeDevice: "Fjarl\u00e6gja",
         tempPassword: "T\u00edmabundi\u00f0 lykilor\u00f0",
         updated: "Uppf\u00e6rt",
         yes: "j\u00e1",
@@ -1245,6 +1248,7 @@ const dashboardHtml = String.raw`<!doctype html>
         noUsers: "Engir notendur.",
         noAdminDevices: "Engin t\u00e6ki.",
         confirmDeleteCustomer: "Ey\u00f0a vi\u00f0skiptavini? A\u00f0eins t\u00f3mir vi\u00f0skiptavinir eru eyddir.",
+        confirmDeleteDevice: "Fjarl\u00e6gja t\u00e6ki \u00far virkri t\u00e6kjaskr\u00e1?",
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Nafn",
         userEmailPlaceholder: "netfang",
@@ -1359,11 +1363,12 @@ const dashboardHtml = String.raw`<!doctype html>
         deleteText: "Delete",
         create: "Create",
         addUser: "Add user",
-        assignDevice: "Save",
+        assignDevice: "Add device",
         userRole: "Role",
         activeUser: "Active",
         mustChangePassword: "Must change password",
         resetUserPassword: "New password",
+        removeDevice: "Remove",
         tempPassword: "Temporary password",
         updated: "Updated",
         yes: "yes",
@@ -1374,6 +1379,7 @@ const dashboardHtml = String.raw`<!doctype html>
         noUsers: "No users.",
         noAdminDevices: "No devices.",
         confirmDeleteCustomer: "Delete customer? Only empty customers can be deleted.",
+        confirmDeleteDevice: "Remove device from the active device registry?",
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Name",
         userEmailPlaceholder: "email",
@@ -1491,6 +1497,7 @@ const dashboardHtml = String.raw`<!doctype html>
       adminDeviceCustomerHeader.textContent = t("customer");
       adminDeviceUpdatedHeader.textContent = t("updated");
       adminDeviceSaveHeader.textContent = t("save");
+      adminDeviceDeleteHeader.textContent = t("removeDevice");
       deviceDetailBack.textContent = t("backToDevices");
       deviceTagsTitle.textContent = t("currentTags");
       deviceTagHeader.textContent = "Tag";
@@ -1991,7 +1998,7 @@ const dashboardHtml = String.raw`<!doctype html>
     function clearAdminTables() {
       adminCustomerRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noCustomers") + '</td></tr>';
       adminUserRows.innerHTML = '<tr><td colspan="7" class="empty">' + t("noUsers") + '</td></tr>';
-      adminDeviceRows.innerHTML = '<tr><td colspan="4" class="empty">' + t("noAdminDevices") + '</td></tr>';
+      adminDeviceRows.innerHTML = '<tr><td colspan="5" class="empty">' + t("noAdminDevices") + '</td></tr>';
     }
 
     function renderAdminCustomers() {
@@ -2016,7 +2023,7 @@ const dashboardHtml = String.raw`<!doctype html>
         saveButton.type = "button";
         saveButton.textContent = t("save");
         deleteButton.type = "button";
-        deleteButton.textContent = t("deleteText");
+        deleteButton.textContent = t("removeDevice");
         deleteButton.className = "danger-button";
 
         saveButton.addEventListener("click", async () => {
@@ -2134,7 +2141,7 @@ const dashboardHtml = String.raw`<!doctype html>
       adminDeviceRows.textContent = "";
 
       if (!adminDevices.length) {
-        adminDeviceRows.innerHTML = '<tr><td colspan="4" class="empty">' + t("noAdminDevices") + '</td></tr>';
+        adminDeviceRows.innerHTML = '<tr><td colspan="5" class="empty">' + t("noAdminDevices") + '</td></tr>';
         return;
       }
 
@@ -2142,9 +2149,13 @@ const dashboardHtml = String.raw`<!doctype html>
         const row = document.createElement("tr");
         const customerSelect = adminSelect(customerOptions(false), device.customer_id || "");
         const saveButton = document.createElement("button");
+        const deleteButton = document.createElement("button");
 
         saveButton.type = "button";
         saveButton.textContent = t("save");
+        deleteButton.type = "button";
+        deleteButton.textContent = t("deleteText");
+        deleteButton.className = "danger-button";
 
         saveButton.addEventListener("click", async () => {
           adminDevicesStatus.textContent = t("saving");
@@ -2160,10 +2171,27 @@ const dashboardHtml = String.raw`<!doctype html>
           }
         });
 
+        deleteButton.addEventListener("click", async () => {
+          if (!confirm(t("confirmDeleteDevice"))) {
+            return;
+          }
+
+          adminDevicesStatus.textContent = t("saving");
+          try {
+            await deleteJson("/api/v1/admin/devices/" + encodeURIComponent(device.device_id));
+            adminDevicesStatus.textContent = t("settingsSaved");
+            await loadSuperAdminWorkspace();
+            await loadState();
+          } catch (error) {
+            adminDevicesStatus.textContent = error.message;
+          }
+        });
+
         cell(row, device.device_id);
         cell(row, customerSelect);
         cell(row, fmtTime(device.updated_at));
         cell(row, saveButton);
+        cell(row, deleteButton);
         adminDeviceRows.appendChild(row);
       }
     }
@@ -4281,10 +4309,13 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS devices (
       device_id TEXT PRIMARY KEY,
       customer_id TEXT REFERENCES customers(id),
+      active BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+
+  await db.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true");
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS device_alarm_log (
@@ -4464,6 +4495,7 @@ async function refreshDeviceRegistry() {
   const result = await db.query(`
     SELECT device_id, customer_id
     FROM devices
+    WHERE active = true
     ORDER BY device_id
   `);
 
@@ -4500,14 +4532,18 @@ async function ensureDeviceRegistered(deviceId) {
 
   const result = await db.query(
     `
-      INSERT INTO devices (device_id, customer_id)
-      VALUES ($1, $2)
+      INSERT INTO devices (device_id, customer_id, active)
+      VALUES ($1, $2, true)
       ON CONFLICT (device_id)
       DO UPDATE SET device_id = EXCLUDED.device_id
-      RETURNING device_id, customer_id
+      RETURNING device_id, customer_id, active
     `,
     [deviceId, DEFAULT_CUSTOMER_ID]
   );
+
+  if (result.rows[0].active === false) {
+    return null;
+  }
 
   deviceRegistry[deviceId] = {
     device_id: result.rows[0].device_id,
@@ -5025,6 +5061,7 @@ async function listAdminDevices() {
       d.updated_at
     FROM devices d
     LEFT JOIN customers c ON c.id = d.customer_id
+    WHERE d.active = true
     ORDER BY d.device_id
   `);
 
@@ -5044,11 +5081,12 @@ async function assignDeviceToCustomer(deviceId, customerId) {
 
   const result = await db.query(
     `
-      INSERT INTO devices (device_id, customer_id)
-      VALUES ($1, $2)
+      INSERT INTO devices (device_id, customer_id, active)
+      VALUES ($1, $2, true)
       ON CONFLICT (device_id)
       DO UPDATE SET
         customer_id = EXCLUDED.customer_id,
+        active = true,
         updated_at = now()
       RETURNING
         device_id,
@@ -5060,9 +5098,62 @@ async function assignDeviceToCustomer(deviceId, customerId) {
   );
 
   await refreshDeviceRegistry();
+  getDevice(deviceId);
   publishWebSocketState();
 
   return adminDeviceFromRow(result.rows[0]);
+}
+
+function removeDeviceFromLiveState(deviceId) {
+  delete deviceRegistry[deviceId];
+  delete devices[deviceId];
+  delete pendingDesiredSettings[deviceId];
+  delete lastTelemetryLogAt[deviceId];
+
+  if (pendingTelemetryLogTimers[deviceId]) {
+    clearTimeout(pendingTelemetryLogTimers[deviceId]);
+    delete pendingTelemetryLogTimers[deviceId];
+  }
+
+  for (const topic of Object.keys(latestState)) {
+    if (topicDeviceId(topic) === deviceId) {
+      delete latestState[topic];
+    }
+  }
+}
+
+async function removeDeviceFromRegistry(deviceId) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  if (!isValidDeviceId(deviceId)) {
+    throw requestError("Invalid device ID");
+  }
+
+  const result = await db.query(
+    `
+      UPDATE devices
+      SET active = false,
+          updated_at = now()
+      WHERE device_id = $1
+        AND active = true
+      RETURNING device_id
+    `,
+    [deviceId]
+  );
+
+  if (result.rowCount === 0) {
+    throw requestError("Device not found", 404);
+  }
+
+  removeDeviceFromLiveState(deviceId);
+  await refreshDeviceRegistry();
+  publishWebSocketState();
+
+  return {
+    device_id: deviceId
+  };
 }
 
 function parseNotificationEmails(value) {
@@ -6054,7 +6145,13 @@ async function handleSnjalliMessage(topic, payloadText) {
   const deviceId = parts[1];
   const group = parts[2];
   const tag = parts.slice(3).join("/");
-  await ensureDeviceRegistered(deviceId);
+  const registry = await ensureDeviceRegistered(deviceId);
+
+  if (!registry) {
+    app.log.info({ deviceId, topic }, "Ignoring MQTT message from removed device");
+    return;
+  }
+
   const device = getDevice(deviceId);
 
   device.last_seen = new Date().toISOString();
@@ -6946,6 +7043,31 @@ app.patch("/api/v1/admin/devices/:deviceId", { preHandler: checkAuth }, async (r
       String(req.params.deviceId || "").trim(),
       String(req.body?.customer_id || "").trim()
     );
+
+    return {
+      ok: true,
+      device
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.delete("/api/v1/admin/devices/:deviceId", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    const device = await removeDeviceFromRegistry(String(req.params.deviceId || "").trim());
 
     return {
       ok: true,
