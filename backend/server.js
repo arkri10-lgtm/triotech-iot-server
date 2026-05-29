@@ -32,6 +32,7 @@ const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
 const PUBLIC_APP_URL = (process.env.PUBLIC_APP_URL || "").replace(/\/+$/, "");
 const ALERT_EMAIL_ENABLED = String(process.env.ALERT_EMAIL_ENABLED || "false").toLowerCase() === "true";
 const ALERT_EMAIL_BATCH_MS = Math.max(0, Number(process.env.ALERT_EMAIL_BATCH_MS || 120000));
+const DEVICE_SETTING_WEB_PENDING_MS = Math.max(0, Number(process.env.DEVICE_SETTING_WEB_PENDING_MS || 300000));
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_SECURE = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
@@ -59,6 +60,7 @@ const deviceRegistry = {};
 const deviceContacts = {};
 const deviceSettings = {};
 const notificationEmailSettings = {};
+const pendingDesiredSettings = {};
 let recentAlarms = [];
 const wsClients = new Map();
 const dashboardSessions = new Map();
@@ -3360,6 +3362,82 @@ function applySettingsToDevice(deviceId, settings) {
   return device;
 }
 
+function settingValuesEqual(left, right) {
+  if (left === null || left === undefined || right === null || right === undefined) {
+    return left === right;
+  }
+
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+
+  if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) {
+    return String(left) === String(right);
+  }
+
+  return Math.abs(leftNumber - rightNumber) < 0.05;
+}
+
+function rememberPendingDesiredSettings(deviceId, settings) {
+  const expiresAt = Date.now() + DEVICE_SETTING_WEB_PENDING_MS;
+  const pending = pendingDesiredSettings[deviceId] || {};
+
+  for (const [key, value] of Object.entries(settings)) {
+    if (!key.startsWith("desired_") || key === "settings_updated_at") {
+      continue;
+    }
+
+    pending[key] = { value, expiresAt };
+  }
+
+  pendingDesiredSettings[deviceId] = pending;
+}
+
+function isDesiredSettingProtected(deviceId, desiredKey, activeValue) {
+  const pending = pendingDesiredSettings[deviceId];
+
+  if (!pending || !pending[desiredKey]) {
+    return false;
+  }
+
+  const pendingSetting = pending[desiredKey];
+
+  if (Date.now() > pendingSetting.expiresAt) {
+    delete pending[desiredKey];
+    return false;
+  }
+
+  if (settingValuesEqual(pendingSetting.value, activeValue)) {
+    delete pending[desiredKey];
+    return false;
+  }
+
+  return true;
+}
+
+async function syncDesiredSettingFromActiveState(deviceId, desiredKey, activeValue) {
+  if (activeValue === null || activeValue === undefined) {
+    return;
+  }
+
+  if (isDesiredSettingProtected(deviceId, desiredKey, activeValue)) {
+    app.log.info({ deviceId, desiredKey, activeValue }, "Keeping recent web setting while waiting for device to apply it");
+    return;
+  }
+
+  const settings = settingsForDevice(deviceId);
+
+  if (settingValuesEqual(settings[desiredKey], activeValue)) {
+    return;
+  }
+
+  await saveDeviceSettings(deviceId, {
+    low_temperature: desiredKey === "desired_low_temperature" ? activeValue : settings.desired_low_temperature,
+    high_temperature: desiredKey === "desired_high_temperature" ? activeValue : settings.desired_high_temperature,
+    high_humidity: desiredKey === "desired_high_humidity" ? activeValue : settings.desired_high_humidity,
+    telemetry_interval_sec: desiredKey === "desired_telemetry_interval_sec" ? activeValue : settings.desired_telemetry_interval_sec
+  }, "device");
+}
+
 function deviceOfflineInfo(device, now = Date.now()) {
   const lastSeenMs = device.last_seen ? Date.parse(device.last_seen) : NaN;
   const hasLastSeen = Number.isFinite(lastSeenMs);
@@ -4382,7 +4460,7 @@ function validateDesiredSettings(settings) {
   return errors;
 }
 
-async function saveDeviceSettings(deviceId, values) {
+async function saveDeviceSettings(deviceId, values, source = "web") {
   const settings = {
     low_temperature: optionalNumber(values.low_temperature),
     high_temperature: optionalNumber(values.high_temperature),
@@ -4412,6 +4490,9 @@ async function saveDeviceSettings(deviceId, values) {
 
   if (!db) {
     applySettingsToDevice(deviceId, desiredSettings);
+    if (source === "web") {
+      rememberPendingDesiredSettings(deviceId, desiredSettings);
+    }
     return desiredSettings;
   }
 
@@ -4458,6 +4539,9 @@ async function saveDeviceSettings(deviceId, values) {
   };
 
   applySettingsToDevice(deviceId, savedSettings);
+  if (source === "web") {
+    rememberPendingDesiredSettings(deviceId, savedSettings);
+  }
   return savedSettings;
 }
 
@@ -4846,18 +4930,22 @@ async function handleSnjalliMessage(topic, payloadText) {
 
   if (group === "state" && tag === "telemetry_interval_sec") {
     device.telemetry_interval_sec = numberOrNull(payloadText);
+    await syncDesiredSettingFromActiveState(deviceId, "desired_telemetry_interval_sec", device.telemetry_interval_sec);
   }
 
   if (group === "state" && tag === "low_temperature") {
     device.low_temperature = numberOrNull(payloadText);
+    await syncDesiredSettingFromActiveState(deviceId, "desired_low_temperature", device.low_temperature);
   }
 
   if (group === "state" && tag === "high_temperature") {
     device.high_temperature = numberOrNull(payloadText);
+    await syncDesiredSettingFromActiveState(deviceId, "desired_high_temperature", device.high_temperature);
   }
 
   if (group === "state" && tag === "high_humidity") {
     device.high_humidity = numberOrNull(payloadText);
+    await syncDesiredSettingFromActiveState(deviceId, "desired_high_humidity", device.high_humidity);
   }
 
   if (group === "alarm" && tag === "state") {
