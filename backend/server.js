@@ -22,6 +22,7 @@ const PORT = Number(process.env.PORT || 3000);
 const API_TOKEN = process.env.API_TOKEN || "";
 const DEVICE_API_TOKEN = process.env.DEVICE_API_TOKEN || "";
 const DEVICE_OFFLINE_GRACE_MS = Number(process.env.DEVICE_OFFLINE_GRACE_MS || 120000);
+const TELEMETRY_LOG_INTERVAL_MS = Math.max(10000, Number(process.env.TELEMETRY_LOG_INTERVAL_MS || 300000));
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
@@ -61,6 +62,8 @@ const wsClients = new Map();
 const dashboardSessions = new Map();
 let mailTransporter = null;
 const alarmEmailBatches = new Map();
+const lastTelemetryLogAt = {};
+const pendingTelemetryLogTimers = {};
 
 const dashboardHtml = String.raw`<!doctype html>
 <html lang="en">
@@ -435,6 +438,114 @@ const dashboardHtml = String.raw`<!doctype html>
       color: var(--muted);
       font-size: 12px;
     }
+
+    .clickable-row {
+      cursor: pointer;
+    }
+
+    .device-link {
+      color: #1f3fb0;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .device-link:hover {
+      text-decoration: underline;
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .detail-header h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .detail-item {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      min-height: 70px;
+    }
+
+    .detail-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      margin-bottom: 5px;
+    }
+
+    .detail-value {
+      font-size: 18px;
+      font-weight: 700;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .range-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .range-button.active {
+      background: #123f91;
+      border-color: #123f91;
+    }
+
+    .chart-wrap {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 12px;
+      overflow: auto;
+    }
+
+    .telemetry-chart {
+      width: 100%;
+      min-width: 640px;
+      height: 280px;
+      display: block;
+    }
+
+    .chart-empty {
+      fill: var(--muted);
+      font-size: 14px;
+    }
+
+    .detail-table table {
+      min-width: 720px;
+    }
+
+    @media (max-width: 900px) {
+      .detail-grid {
+        grid-template-columns: repeat(2, minmax(150px, 1fr));
+      }
+    }
+
+    @media (max-width: 560px) {
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -511,6 +622,76 @@ const dashboardHtml = String.raw`<!doctype html>
           </thead>
           <tbody id="deviceRows">
             <tr><td colspan="16" class="empty">Engin t&aelig;kjag&ouml;gn s&oacute;tt.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="deviceDetailSection" hidden>
+      <div class="detail-header">
+        <div>
+          <a id="deviceDetailBack" class="device-link" href="/dashboard">Til baka &iacute; t&aelig;kjaskr&aacute;</a>
+          <h2 id="deviceDetailTitle">T&aelig;ki</h2>
+        </div>
+        <span id="deviceDetailStatus"></span>
+      </div>
+      <div id="deviceDetailSummary" class="detail-grid"></div>
+
+      <h2 id="deviceTagsTitle">N&uacute;verandi gildi</h2>
+      <div class="table-wrap detail-table">
+        <table>
+          <thead>
+            <tr>
+              <th id="deviceTagHeader">Tag</th>
+              <th id="deviceTagValueHeader">Gildi</th>
+            </tr>
+          </thead>
+          <tbody id="deviceTagRows">
+            <tr><td colspan="2" class="empty">Engin t&aelig;kjag&ouml;gn s&oacute;tt.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="deviceTelemetryTitle">Hiti og raki</h2>
+      <div class="range-bar">
+        <button class="range-button active" type="button" data-range="24h">24 t&iacute;mar</button>
+        <button class="range-button" type="button" data-range="7d">7 dagar</button>
+        <button class="range-button" type="button" data-range="30d">30 dagar</button>
+        <span id="telemetryStatus"></span>
+      </div>
+      <div class="chart-wrap">
+        <svg id="telemetryChart" class="telemetry-chart" viewBox="0 0 760 280" role="img" aria-label="Telemetry graph"></svg>
+      </div>
+      <div class="table-wrap detail-table">
+        <table>
+          <thead>
+            <tr>
+              <th id="telemetryTimeHeader">T&iacute;mi</th>
+              <th id="telemetryTempHeader">Hiti (C)</th>
+              <th id="telemetryHumidityHeader">Raki (%)</th>
+              <th id="telemetryPowerHeader">Aflgjafi</th>
+              <th id="telemetryAlarmHeader">Vi&eth;v&ouml;run</th>
+            </tr>
+          </thead>
+          <tbody id="telemetryRows">
+            <tr><td colspan="5" class="empty">Engin m&aelig;lig&ouml;gn hafa veri&eth; skr&aacute;&eth;.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="deviceAlarmTitle">Vi&eth;varanir fyrir t&aelig;ki</h2>
+      <div class="table-wrap detail-table">
+        <table>
+          <thead>
+            <tr>
+              <th id="deviceAlarmTimeHeader">T&iacute;mi</th>
+              <th id="deviceAlarmClearedHeader">Hreinsa&eth;</th>
+              <th id="deviceAlarmTypeHeader">Vi&eth;v&ouml;run</th>
+              <th id="deviceAlarmTopicHeader">Topic</th>
+            </tr>
+          </thead>
+          <tbody id="deviceAlarmRows">
+            <tr><td colspan="4" class="empty">Engin vi&eth;v&ouml;runarsaga hefur borist.</td></tr>
           </tbody>
         </table>
       </div>
@@ -617,19 +798,53 @@ const dashboardHtml = String.raw`<!doctype html>
     const notificationEmailsInput = document.getElementById("notificationEmailsInput");
     const saveNotificationEmails = document.getElementById("saveNotificationEmails");
     const notificationEmailsStatus = document.getElementById("notificationEmailsStatus");
+    const deviceDetailSection = document.getElementById("deviceDetailSection");
+    const deviceDetailBack = document.getElementById("deviceDetailBack");
+    const deviceDetailTitle = document.getElementById("deviceDetailTitle");
+    const deviceDetailStatus = document.getElementById("deviceDetailStatus");
+    const deviceDetailSummary = document.getElementById("deviceDetailSummary");
+    const deviceTagsTitle = document.getElementById("deviceTagsTitle");
+    const deviceTagHeader = document.getElementById("deviceTagHeader");
+    const deviceTagValueHeader = document.getElementById("deviceTagValueHeader");
+    const deviceTagRows = document.getElementById("deviceTagRows");
+    const deviceTelemetryTitle = document.getElementById("deviceTelemetryTitle");
+    const telemetryStatus = document.getElementById("telemetryStatus");
+    const telemetryChart = document.getElementById("telemetryChart");
+    const telemetryRows = document.getElementById("telemetryRows");
+    const telemetryTimeHeader = document.getElementById("telemetryTimeHeader");
+    const telemetryTempHeader = document.getElementById("telemetryTempHeader");
+    const telemetryHumidityHeader = document.getElementById("telemetryHumidityHeader");
+    const telemetryPowerHeader = document.getElementById("telemetryPowerHeader");
+    const telemetryAlarmHeader = document.getElementById("telemetryAlarmHeader");
+    const deviceAlarmTitle = document.getElementById("deviceAlarmTitle");
+    const deviceAlarmRows = document.getElementById("deviceAlarmRows");
+    const deviceAlarmTimeHeader = document.getElementById("deviceAlarmTimeHeader");
+    const deviceAlarmClearedHeader = document.getElementById("deviceAlarmClearedHeader");
+    const deviceAlarmTypeHeader = document.getElementById("deviceAlarmTypeHeader");
+    const deviceAlarmTopicHeader = document.getElementById("deviceAlarmTopicHeader");
 
     let ws = null;
     const pendingContactEdits = new Map();
     const pendingSettingEdits = new Map();
     const isPasswordResetPage = location.pathname.startsWith("/reset-password");
-    const isAlarmPage = !isPasswordResetPage && location.pathname.startsWith("/alarms");
-    const isSettingsPage = !isPasswordResetPage && location.pathname.startsWith("/settings");
-    const isDevicePage = !isAlarmPage && !isSettingsPage && !isPasswordResetPage;
+    const deviceDetailMatch = location.pathname.match(/^\/devices\/([^/]+)$/);
+    const detailDeviceId = deviceDetailMatch ? decodeURIComponent(deviceDetailMatch[1]) : "";
+    const isDeviceDetailPage = Boolean(deviceDetailMatch);
+    const isAlarmPage = !isPasswordResetPage && !isDeviceDetailPage && location.pathname.startsWith("/alarms");
+    const isSettingsPage = !isPasswordResetPage && !isDeviceDetailPage && location.pathname.startsWith("/settings");
+    const isDevicePage = !isAlarmPage && !isSettingsPage && !isPasswordResetPage && !isDeviceDetailPage;
     const resetToken = new URLSearchParams(location.search).get("token") || "";
     const sortState = { key: "device_id", type: "text", direction: "asc" };
     const alarmSortState = { key: "created_at", type: "time", direction: "desc" };
+    let latestRaw = {};
     let latestDevices = [];
     let latestAlarms = [];
+    let latestTelemetry = [];
+    let telemetryRange = localStorage.getItem("snjallhus_telemetry_range") || "24h";
+    if (!["24h", "7d", "30d"].includes(telemetryRange)) {
+      telemetryRange = "24h";
+    }
+    let telemetryRefreshTimer = null;
     let currentUser = null;
     let currentLanguage = localStorage.getItem("snjallhus_language") || "is";
     emailInput.value = localStorage.getItem("snjallhus_email") || "";
@@ -637,10 +852,11 @@ const dashboardHtml = String.raw`<!doctype html>
     alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
 
     deviceSection.hidden = !isDevicePage;
+    deviceDetailSection.hidden = !isDeviceDetailPage;
     alarmSection.hidden = !isAlarmPage;
     settingsSection.hidden = !isSettingsPage;
     passwordResetSection.hidden = !isPasswordResetPage;
-    devicesLink.classList.toggle("active", isDevicePage);
+    devicesLink.classList.toggle("active", isDevicePage || isDeviceDetailPage);
     alarmsLink.classList.toggle("active", isAlarmPage);
     settingsLink.classList.toggle("active", isSettingsPage);
 
@@ -721,7 +937,29 @@ const dashboardHtml = String.raw`<!doctype html>
         notificationEmailsPlaceholder: "eitt netfang í hverja línu",
         saveNotificationEmails: "Vista netföng",
         loading: "sæki",
-        settingsSaved: "vistað"
+        settingsSaved: "vistað",
+        backToDevices: "Til baka i t\u00e6kjaskr\u00e1",
+        deviceDetail: "T\u00e6ki",
+        currentStatus: "N\u00faverandi sta\u00f0a",
+        currentTags: "N\u00faverandi gildi",
+        tagValue: "Gildi",
+        telemetryHistory: "Hiti og raki",
+        deviceAlarmHistory: "Vi\u00f0varanir fyrir t\u00e6ki",
+        noTelemetryHistory: "Engin m\u00e6lig\u00f6gn hafa veri\u00f0 skr\u00e1\u00f0.",
+        range24h: "24 t\u00edmar",
+        range7d: "7 dagar",
+        range30d: "30 dagar",
+        detailAddress: "Heimilisfang",
+        detailPhone: "S\u00edmi",
+        detailPower: "Aflgjafi",
+        detailAuxPower: "Auka aflvaki",
+        detailAuxPowerStatus: "Auka aflvaki sta\u00f0a",
+        detailLowTemp: "Settur l\u00e1gur hiti",
+        detailHighTemp: "Settur h\u00e1r hiti",
+        detailHighHumidity: "Settur h\u00e1r raki",
+        detailInterval: "Uppf\u00e6rslu-ti\u00f0ni",
+        chartLegendTemp: "Hiti",
+        chartLegendHumidity: "Raki"
       },
       en: {
         pageTitle: "Snjalli Husvordurinn",
@@ -795,7 +1033,29 @@ const dashboardHtml = String.raw`<!doctype html>
         notificationEmailsPlaceholder: "one email address per line",
         saveNotificationEmails: "Save emails",
         loading: "loading",
-        settingsSaved: "saved"
+        settingsSaved: "saved",
+        backToDevices: "Back to devices",
+        deviceDetail: "Device",
+        currentStatus: "Current status",
+        currentTags: "Current tags",
+        tagValue: "Value",
+        telemetryHistory: "Temperature and humidity",
+        deviceAlarmHistory: "Device alarm history",
+        noTelemetryHistory: "No telemetry history has been stored yet.",
+        range24h: "24 hours",
+        range7d: "7 days",
+        range30d: "30 days",
+        detailAddress: "Address",
+        detailPhone: "Phone",
+        detailPower: "Power source",
+        detailAuxPower: "Aux. power monitor",
+        detailAuxPowerStatus: "Aux. power status",
+        detailLowTemp: "Set low temp",
+        detailHighTemp: "Set high temp",
+        detailHighHumidity: "Set high humidity",
+        detailInterval: "Update frequency",
+        chartLegendTemp: "Temperature",
+        chartLegendHumidity: "Humidity"
       }
     };
 
@@ -879,6 +1139,24 @@ const dashboardHtml = String.raw`<!doctype html>
       notificationEmailsLabel.textContent = t("notificationEmails");
       notificationEmailsInput.placeholder = t("notificationEmailsPlaceholder");
       saveNotificationEmails.textContent = t("saveNotificationEmails");
+      deviceDetailBack.textContent = t("backToDevices");
+      deviceTagsTitle.textContent = t("currentTags");
+      deviceTagHeader.textContent = "Tag";
+      deviceTagValueHeader.textContent = t("tagValue");
+      deviceTelemetryTitle.textContent = t("telemetryHistory");
+      deviceAlarmTitle.textContent = t("deviceAlarmHistory");
+      telemetryTimeHeader.textContent = t("columnTime");
+      telemetryTempHeader.textContent = t("columnTemperature");
+      telemetryHumidityHeader.textContent = t("columnHumidity");
+      telemetryPowerHeader.textContent = t("columnPower");
+      telemetryAlarmHeader.textContent = t("columnAlarm");
+      deviceAlarmTimeHeader.textContent = t("columnTime");
+      deviceAlarmClearedHeader.textContent = t("columnCleared");
+      deviceAlarmTypeHeader.textContent = t("columnAlarm");
+      deviceAlarmTopicHeader.textContent = t("columnTopic");
+      document.querySelectorAll(".range-button").forEach((button) => {
+        button.textContent = t(button.dataset.range === "24h" ? "range24h" : (button.dataset.range === "7d" ? "range7d" : "range30d"));
+      });
       if (apiStatus.textContent === "waiting" || apiStatus.textContent === "bíð") {
         apiStatus.textContent = t("waiting");
       }
@@ -1306,11 +1584,20 @@ const dashboardHtml = String.raw`<!doctype html>
 
       for (const device of sortedDevices(visibleDevices)) {
         const row = document.createElement("tr");
+        row.classList.add("clickable-row");
         if (device.alarm_state === "ALARM") {
-          row.className = "alarm";
+          row.classList.add("alarm");
         } else if (device.is_offline) {
-          row.className = "offline";
+          row.classList.add("offline");
         }
+
+        row.addEventListener("click", (event) => {
+          if (event.target.closest("input, button, a, select, textarea")) {
+            return;
+          }
+
+          location.href = "/devices/" + encodeURIComponent(device.device_id);
+        });
 
         const status = device.connection_state || device.status;
         const statusKind = device.is_offline ? "warn" : (status === "online" ? "ok" : "warn");
@@ -1335,7 +1622,12 @@ const dashboardHtml = String.raw`<!doctype html>
           saveRow(device.device_id, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, rowSaveButton);
         });
 
-        cell(row, device.device_id);
+        const deviceLink = document.createElement("a");
+        deviceLink.className = "device-link";
+        deviceLink.href = "/devices/" + encodeURIComponent(device.device_id);
+        deviceLink.textContent = device.device_id;
+
+        cell(row, deviceLink);
         cell(row, phoneInput);
         cell(row, addressInput);
         cell(row, badge(status, statusKind));
@@ -1392,6 +1684,335 @@ const dashboardHtml = String.raw`<!doctype html>
       }
     }
 
+    function detailItem(label, value) {
+      const item = document.createElement("div");
+      const labelElement = document.createElement("div");
+      const valueElement = document.createElement("div");
+      item.className = "detail-item";
+      labelElement.className = "detail-label";
+      valueElement.className = "detail-value";
+      labelElement.textContent = label;
+
+      if (value instanceof Node) {
+        valueElement.appendChild(value);
+      } else {
+        valueElement.textContent = value || "";
+      }
+
+      item.append(labelElement, valueElement);
+      return item;
+    }
+
+    function renderDeviceDetail(device, alarms) {
+      if (!isDeviceDetailPage) {
+        return;
+      }
+
+      deviceDetailTitle.textContent = t("deviceDetail") + ": " + detailDeviceId;
+      deviceDetailSummary.textContent = "";
+      deviceAlarmRows.textContent = "";
+
+      if (!device) {
+        deviceDetailStatus.textContent = t("noDeviceData");
+        deviceDetailSummary.appendChild(detailItem(t("currentStatus"), t("noDeviceData")));
+        renderDeviceAlarms([]);
+        return;
+      }
+
+      const status = device.connection_state || device.status;
+      const statusKind = device.is_offline ? "warn" : (status === "online" ? "ok" : "warn");
+      deviceDetailStatus.textContent = "";
+      deviceDetailStatus.appendChild(badge(status, statusKind));
+
+      const alarmBadge = device.alarm_state
+        ? badge(device.alarm_state, device.alarm_state === "ALARM" ? "alarm" : "ok")
+        : "";
+
+      const items = [
+        [t("columnLastSeen"), fmtTime(device.last_seen) + (device.seconds_since_seen !== null ? " (" + fmtAge(device.seconds_since_seen) + ")" : "")],
+        [t("columnTemperature"), fmt(device.temperature, " C")],
+        [t("columnHumidity"), fmt(device.humidity, " %")],
+        [t("columnAlarm"), alarmBadge],
+        [t("detailPower"), device.power_source],
+        [t("detailAuxPower"), device.ble_power_monitor_installed === true ? "yes" : (device.ble_power_monitor_installed === false ? "no" : "")],
+        [t("detailAuxPowerStatus"), device.ble_power_monitor_connection || ""],
+        [t("detailAddress"), device.address],
+        [t("detailPhone"), device.phone_number],
+        [t("detailLowTemp"), fmt(displaySetting(device, "desired_low_temperature", "low_temperature"), " C")],
+        [t("detailHighTemp"), fmt(displaySetting(device, "desired_high_temperature", "high_temperature"), " C")],
+        [t("detailHighHumidity"), fmt(displaySetting(device, "desired_high_humidity", "high_humidity"), " %")],
+        [t("detailInterval"), fmt(displaySetting(device, "desired_telemetry_interval_sec", "telemetry_interval_sec"), " s")]
+      ];
+
+      for (const [label, value] of items) {
+        deviceDetailSummary.appendChild(detailItem(label, value));
+      }
+
+      renderDeviceAlarms(alarms);
+    }
+
+    function renderDeviceTags(rawState) {
+      if (!isDeviceDetailPage) {
+        return;
+      }
+
+      deviceTagRows.textContent = "";
+      const prefix = "snjalli/" + detailDeviceId + "/";
+      const rows = Object.entries(rawState || {})
+        .filter(([topic]) => topic.startsWith(prefix))
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+
+      if (!rows.length) {
+        const row = document.createElement("tr");
+        cell(row, t("noDeviceData"));
+        row.firstChild.colSpan = 2;
+        row.firstChild.className = "empty";
+        deviceTagRows.appendChild(row);
+        return;
+      }
+
+      for (const [topic, value] of rows) {
+        const row = document.createElement("tr");
+        cell(row, topic.slice(prefix.length));
+        cell(row, value);
+        deviceTagRows.appendChild(row);
+      }
+    }
+
+    function svgElement(name, attrs = {}) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+
+      for (const [key, value] of Object.entries(attrs)) {
+        element.setAttribute(key, value);
+      }
+
+      return element;
+    }
+
+    function telemetryNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function renderTelemetryChart(rows) {
+      telemetryChart.textContent = "";
+      const width = 760;
+      const height = 280;
+      const left = 50;
+      const right = 18;
+      const top = 22;
+      const bottom = 38;
+      const plotWidth = width - left - right;
+      const plotHeight = height - top - bottom;
+      const values = [];
+
+      for (const row of rows) {
+        const temperature = telemetryNumber(row.temperature);
+        const humidity = telemetryNumber(row.humidity);
+        if (temperature !== null) values.push(temperature);
+        if (humidity !== null) values.push(humidity);
+      }
+
+      if (!rows.length || !values.length) {
+        telemetryChart.appendChild(svgElement("text", {
+          x: "50%",
+          y: "50%",
+          "text-anchor": "middle",
+          class: "chart-empty"
+        }));
+        telemetryChart.lastChild.textContent = t("noTelemetryHistory");
+        return;
+      }
+
+      let minValue = Math.min(...values);
+      let maxValue = Math.max(...values);
+
+      if (minValue === maxValue) {
+        minValue -= 1;
+        maxValue += 1;
+      } else {
+        const padding = (maxValue - minValue) * 0.12;
+        minValue -= padding;
+        maxValue += padding;
+      }
+
+      const times = rows.map((row) => Date.parse(row.created_at)).filter(Number.isFinite);
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const timeSpan = Math.max(1, maxTime - minTime);
+
+      const x = (time) => left + ((time - minTime) / timeSpan) * plotWidth;
+      const y = (value) => top + ((maxValue - value) / (maxValue - minValue)) * plotHeight;
+
+      for (let i = 0; i <= 4; i++) {
+        const gridY = top + (plotHeight / 4) * i;
+        const labelValue = maxValue - ((maxValue - minValue) / 4) * i;
+        telemetryChart.appendChild(svgElement("line", {
+          x1: left,
+          y1: gridY,
+          x2: width - right,
+          y2: gridY,
+          stroke: "#d7dde7",
+          "stroke-width": 1
+        }));
+        const label = svgElement("text", {
+          x: left - 8,
+          y: gridY + 4,
+          "text-anchor": "end",
+          fill: "#647086",
+          "font-size": 11
+        });
+        label.textContent = labelValue.toFixed(1);
+        telemetryChart.appendChild(label);
+      }
+
+      function pointsFor(key) {
+        return rows
+          .map((row) => {
+            const value = telemetryNumber(row[key]);
+            const time = Date.parse(row.created_at);
+            if (value === null || !Number.isFinite(time)) return null;
+            return x(time).toFixed(1) + "," + y(value).toFixed(1);
+          })
+          .filter(Boolean)
+          .join(" ");
+      }
+
+      const tempPoints = pointsFor("temperature");
+      const humidityPoints = pointsFor("humidity");
+
+      if (tempPoints) {
+        telemetryChart.appendChild(svgElement("polyline", {
+          points: tempPoints,
+          fill: "none",
+          stroke: "#cf3030",
+          "stroke-width": 2.5
+        }));
+      }
+
+      if (humidityPoints) {
+        telemetryChart.appendChild(svgElement("polyline", {
+          points: humidityPoints,
+          fill: "none",
+          stroke: "#157347",
+          "stroke-width": 2.5
+        }));
+      }
+
+      const axis = svgElement("line", {
+        x1: left,
+        y1: top + plotHeight,
+        x2: width - right,
+        y2: top + plotHeight,
+        stroke: "#647086",
+        "stroke-width": 1
+      });
+      telemetryChart.appendChild(axis);
+
+      const legendTemp = svgElement("text", { x: left, y: height - 10, fill: "#cf3030", "font-size": 12 });
+      legendTemp.textContent = t("chartLegendTemp") + " (C)";
+      telemetryChart.appendChild(legendTemp);
+
+      const legendHumidity = svgElement("text", { x: left + 120, y: height - 10, fill: "#157347", "font-size": 12 });
+      legendHumidity.textContent = t("chartLegendHumidity") + " (%)";
+      telemetryChart.appendChild(legendHumidity);
+    }
+
+    function renderTelemetryRows(rows) {
+      telemetryRows.textContent = "";
+
+      if (!rows.length) {
+        const row = document.createElement("tr");
+        cell(row, t("noTelemetryHistory"));
+        row.firstChild.colSpan = 5;
+        row.firstChild.className = "empty";
+        telemetryRows.appendChild(row);
+        return;
+      }
+
+      for (const telemetry of [...rows].reverse()) {
+        const row = document.createElement("tr");
+        cell(row, fmtTime(telemetry.created_at));
+        cell(row, fmt(telemetry.temperature, " C"));
+        cell(row, fmt(telemetry.humidity, " %"));
+        cell(row, telemetry.power_source || "");
+        cell(row, telemetry.alarm_state || "");
+        telemetryRows.appendChild(row);
+      }
+    }
+
+    function renderTelemetry(rows) {
+      latestTelemetry = rows || [];
+      renderTelemetryChart(latestTelemetry);
+      renderTelemetryRows(latestTelemetry);
+      telemetryStatus.textContent = String(latestTelemetry.length);
+      document.querySelectorAll(".range-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.range === telemetryRange);
+      });
+    }
+
+    function renderDeviceAlarms(alarms) {
+      deviceAlarmRows.textContent = "";
+
+      if (!alarms.length) {
+        const row = document.createElement("tr");
+        cell(row, t("noAlarmHistory"));
+        row.firstChild.colSpan = 4;
+        row.firstChild.className = "empty";
+        deviceAlarmRows.appendChild(row);
+        return;
+      }
+
+      for (const alarm of sortedAlarms(alarms).slice(0, 100)) {
+        const row = document.createElement("tr");
+        cell(row, fmtTime(alarm.created_at));
+        cell(row, fmtTime(alarm.cleared_at));
+        cell(row, alarm.alarm_type);
+        cell(row, alarm.source_topic);
+        deviceAlarmRows.appendChild(row);
+      }
+    }
+
+    async function loadDeviceTelemetry() {
+      if (!isDeviceDetailPage || !currentUser) {
+        return;
+      }
+
+      telemetryStatus.textContent = t("loading");
+
+      try {
+        const response = await fetch(
+          "/api/v1/devices/" + encodeURIComponent(detailDeviceId) + "/telemetry?range=" + encodeURIComponent(telemetryRange),
+          { headers: authHeaders() }
+        );
+
+        if (response.status === 401) {
+          setCurrentUser(null);
+          throw new Error(t("notLoggedIn"));
+        }
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || ("HTTP " + response.status));
+        }
+
+        const body = await response.json();
+        renderTelemetry(body.rows || []);
+      } catch (error) {
+        telemetryStatus.textContent = error.message;
+      }
+    }
+
+    function startTelemetryRefreshTimer() {
+      if (!isDeviceDetailPage || telemetryRefreshTimer) {
+        return;
+      }
+
+      telemetryRefreshTimer = setInterval(() => {
+        loadDeviceTelemetry();
+      }, 60000);
+    }
+
     function isEditingContact() {
       return document.activeElement && document.activeElement.classList.contains("row-input");
     }
@@ -1399,12 +2020,21 @@ const dashboardHtml = String.raw`<!doctype html>
     function renderState(state) {
       const devices = state.devices || [];
       const alarms = state.alarms || [];
+      latestRaw = state.raw || {};
       latestDevices = devices;
       latestAlarms = alarms;
       deviceCount.textContent = String(devices.length);
 
       if (isDevicePage && !isEditingContact()) {
         renderDevices(devices);
+      }
+
+      if (isDeviceDetailPage) {
+        renderDeviceDetail(
+          devices.find((device) => device.device_id === detailDeviceId),
+          alarms.filter((alarm) => alarm.device_id === detailDeviceId)
+        );
+        renderDeviceTags(state.raw || {});
       }
 
       if (isAlarmPage) {
@@ -1550,8 +2180,17 @@ const dashboardHtml = String.raw`<!doctype html>
         wsStatus.textContent = t("notConnected");
         latestDevices = [];
         latestAlarms = [];
+        latestRaw = {};
+        latestTelemetry = [];
         renderDevices([]);
         renderAlarms([]);
+        renderDeviceDetail(null, []);
+        renderDeviceTags({});
+        renderTelemetry([]);
+        if (telemetryRefreshTimer) {
+          clearInterval(telemetryRefreshTimer);
+          telemetryRefreshTimer = null;
+        }
         notificationEmailsInput.value = "";
         notificationEmailsStatus.textContent = "";
       }
@@ -1604,7 +2243,9 @@ const dashboardHtml = String.raw`<!doctype html>
       passwordInput.value = "";
       setCurrentUser(body.user);
       await loadState();
+      await loadDeviceTelemetry();
       await loadNotificationSettings();
+      startTelemetryRefreshTimer();
       connectWs();
     }
 
@@ -1626,7 +2267,9 @@ const dashboardHtml = String.raw`<!doctype html>
       const body = await response.json();
       setCurrentUser(body.user);
       await loadState();
+      await loadDeviceTelemetry();
       await loadNotificationSettings();
+      startTelemetryRefreshTimer();
       connectWs();
     }
 
@@ -1782,6 +2425,12 @@ const dashboardHtml = String.raw`<!doctype html>
       applyLanguage();
       renderDevices(latestDevices);
       renderAlarms(latestAlarms);
+      renderTelemetry(latestTelemetry);
+      renderDeviceDetail(
+        latestDevices.find((device) => device.device_id === detailDeviceId),
+        latestAlarms.filter((alarm) => alarm.device_id === detailDeviceId)
+      );
+      renderDeviceTags(latestRaw);
     });
 
     deviceFilter.addEventListener("input", () => {
@@ -1806,6 +2455,15 @@ const dashboardHtml = String.raw`<!doctype html>
       localStorage.removeItem("snjallhus_alarm_filter");
       renderAlarms(latestAlarms);
       alarmFilter.focus();
+    });
+
+    document.querySelectorAll(".range-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        telemetryRange = button.dataset.range || "24h";
+        localStorage.setItem("snjallhus_telemetry_range", telemetryRange);
+        renderTelemetry(latestTelemetry);
+        loadDeviceTelemetry();
+      });
     });
 
     settingsCustomerSelect.addEventListener("change", loadNotificationSettings);
@@ -2767,6 +3425,20 @@ async function initDatabase() {
   `);
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS device_telemetry_log (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id TEXT,
+      device_id TEXT NOT NULL,
+      temperature NUMERIC,
+      humidity NUMERIC,
+      power_source TEXT,
+      ble_power_monitor_connection TEXT,
+      alarm_state TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`
     CREATE TABLE IF NOT EXISTS device_contact_info (
       device_id TEXT PRIMARY KEY,
       phone_number TEXT NOT NULL DEFAULT '',
@@ -2802,6 +3474,16 @@ async function initDatabase() {
   await db.query(`
     CREATE INDEX IF NOT EXISTS device_alarm_log_created_idx
     ON device_alarm_log (created_at DESC)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS device_telemetry_log_device_created_idx
+    ON device_telemetry_log (device_id, created_at DESC)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS device_telemetry_log_customer_created_idx
+    ON device_telemetry_log (customer_id, created_at DESC)
   `);
 
   await db.query(`
@@ -3442,6 +4124,15 @@ function canAccessDevice(user, deviceId) {
   return Boolean(registry && registry.customer_id === user.customer_id);
 }
 
+function deviceKnown(deviceId) {
+  return Boolean(
+    devices[deviceId] ||
+    deviceRegistry[deviceId] ||
+    deviceContacts[deviceId] ||
+    deviceSettings[deviceId]
+  );
+}
+
 function filterRawStateForUser(user) {
   if (isAdminUser(user)) {
     return latestState;
@@ -3852,6 +4543,128 @@ async function clearAlarmEvent(deviceId, alarmType) {
   }
 }
 
+function telemetryRangeMs(range) {
+  if (range === "7d") {
+    return 7 * 24 * 60 * 60 * 1000;
+  }
+
+  if (range === "30d") {
+    return 30 * 24 * 60 * 60 * 1000;
+  }
+
+  return 24 * 60 * 60 * 1000;
+}
+
+function telemetryValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function scheduleTelemetrySnapshot(deviceId) {
+  if (!db || pendingTelemetryLogTimers[deviceId]) {
+    return;
+  }
+
+  pendingTelemetryLogTimers[deviceId] = setTimeout(() => {
+    delete pendingTelemetryLogTimers[deviceId];
+    logTelemetrySnapshot(deviceId);
+  }, 2000);
+}
+
+async function logTelemetrySnapshot(deviceId) {
+  if (!db) {
+    return;
+  }
+
+  const device = devices[deviceId];
+  if (!device) {
+    return;
+  }
+
+  const temperature = telemetryValue(device.temperature);
+  const humidity = telemetryValue(device.humidity);
+
+  if (temperature === null || humidity === null) {
+    return;
+  }
+
+  const now = Date.now();
+  const lastLoggedAt = lastTelemetryLogAt[deviceId] || 0;
+
+  if (lastLoggedAt && now - lastLoggedAt < TELEMETRY_LOG_INTERVAL_MS) {
+    return;
+  }
+
+  lastTelemetryLogAt[deviceId] = now;
+
+  try {
+    await db.query(
+      `
+        INSERT INTO device_telemetry_log (
+          customer_id,
+          device_id,
+          temperature,
+          humidity,
+          power_source,
+          ble_power_monitor_connection,
+          alarm_state
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        deviceRegistry[deviceId]?.customer_id || DEFAULT_CUSTOMER_ID,
+        deviceId,
+        temperature,
+        humidity,
+        device.power_source || null,
+        device.ble_power_monitor_connection || null,
+        device.alarm_state || null
+      ]
+    );
+  } catch (error) {
+    lastTelemetryLogAt[deviceId] = lastLoggedAt;
+    app.log.error({ error, deviceId }, "Failed to log telemetry snapshot");
+  }
+}
+
+async function getTelemetryHistory(deviceId, range = "24h") {
+  if (!db) {
+    return [];
+  }
+
+  const since = new Date(Date.now() - telemetryRangeMs(range)).toISOString();
+  const result = await db.query(
+    `
+      SELECT
+        id,
+        customer_id,
+        device_id,
+        temperature,
+        humidity,
+        power_source,
+        ble_power_monitor_connection,
+        alarm_state,
+        created_at
+      FROM device_telemetry_log
+      WHERE device_id = $1
+        AND created_at >= $2
+      ORDER BY created_at ASC, id ASC
+      LIMIT 10000
+    `,
+    [deviceId, since]
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    temperature: row.temperature === null ? null : Number(row.temperature),
+    humidity: row.humidity === null ? null : Number(row.humidity)
+  }));
+}
+
 async function checkOfflineDevices() {
   const now = Date.now();
   let changed = false;
@@ -3935,10 +4748,12 @@ async function handleSnjalliMessage(topic, payloadText) {
 
   if (group === "tele" && tag === "temperature") {
     device.temperature = numberOrNull(payloadText);
+    scheduleTelemetrySnapshot(deviceId);
   }
 
   if (group === "tele" && tag === "humidity") {
     device.humidity = numberOrNull(payloadText);
+    scheduleTelemetrySnapshot(deviceId);
   }
 
   if (group === "power" && tag === "source") {
@@ -4050,6 +4865,10 @@ app.get("/app", async (req, reply) => {
 });
 
 app.get("/dashboard", async (req, reply) => {
+  return reply.type("text/html").send(dashboardHtml);
+});
+
+app.get("/devices/:deviceId", async (req, reply) => {
   return reply.type("text/html").send(dashboardHtml);
 });
 
@@ -4439,6 +5258,112 @@ app.get("/api/v1/state", { preHandler: checkAuth }, async (req) => {
 
 app.get("/api/v1/devices", { preHandler: checkAuth }, async (req) => {
   return getDashboardState(req.user).devices;
+});
+
+app.get("/api/v1/devices/:deviceId", { preHandler: checkAuth }, async (req, reply) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+
+  if (!isValidDeviceId(deviceId)) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Invalid device ID"
+    };
+  }
+
+  if (!deviceKnown(deviceId)) {
+    reply.code(404);
+    return {
+      ok: false,
+      error: "Device not found"
+    };
+  }
+
+  if (!canAccessDevice(req.user, deviceId)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  return {
+    ok: true,
+    device: getDeviceView(getDevice(deviceId))
+  };
+});
+
+app.get("/api/v1/devices/:deviceId/telemetry", { preHandler: checkAuth }, async (req, reply) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+  const range = String(req.query?.range || "24h");
+
+  if (!isValidDeviceId(deviceId)) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Invalid device ID"
+    };
+  }
+
+  if (!deviceKnown(deviceId)) {
+    reply.code(404);
+    return {
+      ok: false,
+      error: "Device not found"
+    };
+  }
+
+  if (!canAccessDevice(req.user, deviceId)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  return {
+    ok: true,
+    device_id: deviceId,
+    range: ["24h", "7d", "30d"].includes(range) ? range : "24h",
+    telemetry_log_interval_ms: TELEMETRY_LOG_INTERVAL_MS,
+    rows: await getTelemetryHistory(deviceId, range)
+  };
+});
+
+app.get("/api/v1/devices/:deviceId/alarms", { preHandler: checkAuth }, async (req, reply) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+
+  if (!isValidDeviceId(deviceId)) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Invalid device ID"
+    };
+  }
+
+  if (!deviceKnown(deviceId)) {
+    reply.code(404);
+    return {
+      ok: false,
+      error: "Device not found"
+    };
+  }
+
+  if (!canAccessDevice(req.user, deviceId)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  const alarms = await refreshRecentAlarms();
+
+  return {
+    ok: true,
+    device_id: deviceId,
+    alarms: filterAlarmsForUser(req.user, alarms).filter((alarm) => alarm.device_id === deviceId)
+  };
 });
 
 app.get("/api/v1/admin/customers", { preHandler: checkAuth }, async (req, reply) => {
