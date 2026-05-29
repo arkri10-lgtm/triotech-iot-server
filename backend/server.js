@@ -10,6 +10,14 @@ const { Pool } = pg;
 
 await app.register(websocket);
 
+app.addHook("onRequest", async (req, reply) => {
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("X-Frame-Options", "DENY");
+  reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+});
+
 const PORT = Number(process.env.PORT || 3000);
 const API_TOKEN = process.env.API_TOKEN || "";
 const DEVICE_API_TOKEN = process.env.DEVICE_API_TOKEN || "";
@@ -1858,6 +1866,380 @@ const dashboardHtml = String.raw`<!doctype html>
 </body>
 </html>`;
 
+const publicPageText = {
+  home: {
+    title: "Snjalli Husvordurinn | Triotech",
+    eyebrow: "Triotech IoT monitoring",
+    heading: "Snjalli H&uacute;sv&ouml;r&eth;urinn",
+    lead: "Einf&ouml;ld v&ouml;ktun fyrir h&uacute;s, frystiklefa, geymslur og a&eth;ra sta&eth;i &thorn;ar sem hitastig, raki, rafmagn og vi&eth;varanir skipta m&aacute;li.",
+    body: [
+      "Kerfi&eth; notar eigin IoT t&aelig;ki sem senda st&ouml;&eth;u og vi&eth;varanir til &thorn;j&oacute;ns Triotech. Vi&eth;skiptavinir skr&aacute; sig inn &aacute; vefinn og sj&aacute; t&aelig;kin s&iacute;n &iacute; sk&yacute;rri t&aelig;kjaskr&aacute;.",
+      "Snjalli H&uacute;sv&ouml;r&eth;urinn er hluti af Snjallh&uacute;s lausnunum fr&aacute; Triotech. Kerfi&eth; er byggt fyrir &iacute;slenska vi&eth;skiptavini og fyrsta &uacute;tg&aacute;fan leggur &aacute;herslu &aacute; &aacute;rei&eth;anlega yfirs&yacute;n, vi&eth;varanir og einfaldan rekstur."
+    ],
+    cards: [
+      ["T&aelig;kjav&ouml;ktun", "Hitastig, raki, rafmagn, auka aflvaki og s&iacute;&eth;asta tenging t&aelig;kis."],
+      ["Vi&eth;varanir", "Vi&eth;v&ouml;runarskr&aacute;, rau&eth;ar l&iacute;nur &iacute; t&aelig;kjaskr&aacute; og samantekt &iacute; t&ouml;lvup&oacute;sti."],
+      ["Fyrirt&aelig;kja&thorn;j&oacute;nusta", "A&eth;gangur er bundinn vi&eth; vi&eth;skiptavini og hver notandi s&eacute;r a&eth;eins s&iacute;n t&aelig;ki."]
+    ]
+  },
+  contact: {
+    title: "Contact | Triotech Snjallhus",
+    eyebrow: "Contact",
+    heading: "Hafa samband",
+    lead: "Fyrir a&eth;gang, &thorn;j&oacute;nustu e&eth;a spurningar um Snjallh&uacute;s kerfi Triotech.",
+    body: [
+      "Sendu okkur t&ouml;lvup&oacute;st &aacute; <a href=\"mailto:info@triotech.is\">info@triotech.is</a>.",
+      "Ef &thorn;&uacute; ert vi&eth;skiptavinur og vantar a&eth;sto&eth; vi&eth; innskr&aacute;ningu, taktu fram nafn fyrirt&aelig;kis og netfangi&eth; sem nota&eth; er &iacute; kerfinu."
+    ],
+    cards: [
+      ["A&eth;gangur", "N&yacute;ir notendur f&aacute; a&eth;gang fr&aacute; Triotech e&eth;a kerfisstj&oacute;ra vi&eth;skiptavinar."],
+      ["Vi&eth;varanir", "Vi&eth;v&ouml;runarp&oacute;star eru stilltir inni &iacute; kerfinu af heimilu&eth;um notendum."],
+      ["&THORN;j&oacute;nusta", "Kerfi&eth; er reki&eth; af Triotech fyrir vi&eth;skiptavini &aacute; &Iacute;slandi."]
+    ]
+  },
+  privacy: {
+    title: "Privacy | Triotech Snjallhus",
+    eyebrow: "Privacy",
+    heading: "Pers&oacute;nuvernd og g&ouml;gn",
+    lead: "Snjallh&uacute;s kerfi&eth; geymir a&eth;eins g&ouml;gn sem &thorn;arf til a&eth; reka t&aelig;kjav&ouml;ktun, a&eth;gangsst&yacute;ringu og vi&eth;varanir.",
+    body: [
+      "Kerfi&eth; getur geymt netf&ouml;ng notenda, hlutverk notenda, t&aelig;kjaau&eth;kenni, stillingar t&aelig;kja, s&iacute;man&uacute;mer og sta&eth;setningarl&yacute;singu t&aelig;kis ef vi&eth;skiptavinur skr&aacute;ir &thorn;&aelig;r uppl&yacute;singar.",
+      "T&aelig;ki senda rekstrarg&ouml;gn eins og hitastig, raka, rafmagnsst&ouml;&eth;u, t&aelig;kjast&ouml;&eth;u og vi&eth;varanir. Vi&eth;v&ouml;runarskr&aacute; er geymd svo vi&eth;skiptavinur geti s&eacute;&eth; hva&eth; ger&eth;ist og hven&aelig;r.",
+      "A&eth;gangur er takmarka&eth;ur vi&eth; heimila&eth;a notendur. Almennir vi&eth;skiptavinir sj&aacute; a&eth;eins t&aelig;ki sem tengjast s&iacute;num vi&eth;skiptamanni."
+    ],
+    cards: [
+      ["Markmi&eth;", "A&eth; reka v&ouml;ktunarkerfi og senda vi&eth;varanir."],
+      ["Geymsla", "G&ouml;gn eru geymd &aacute; &thorn;j&oacute;num sem Triotech st&yacute;rir e&eth;a notar fyrir &thorn;j&oacute;nustuna."],
+      ["Hafa samband", "Fyrir bei&eth;nir um g&ouml;gn e&eth;a lei&eth;r&eacute;ttingu: info@triotech.is."]
+    ]
+  },
+  terms: {
+    title: "Terms | Triotech Snjallhus",
+    eyebrow: "Terms",
+    heading: "Notkunarskilm&aacute;lar",
+    lead: "Snjallh&uacute;s kerfi&eth; er rekstrar- og v&ouml;ktunarlausn fyrir vi&eth;skiptavini Triotech.",
+    body: [
+      "A&eth;gangur a&eth; kerfinu er fyrir vi&eth;skiptavini sem hafa virka &thorn;j&oacute;nustu e&eth;a prufu. Notendur bera &aacute;byrg&eth; &aacute; a&eth; halda lykilor&eth;um &ouml;ruggum og skr&aacute; r&eacute;ttar vi&eth;v&ouml;runaruppl&yacute;singar.",
+      "Kerfi&eth; er &aelig;tla&eth; til a&eth; hj&aacute;lpa vi&eth; eftirlit og vi&eth;varanir. &THORN;a&eth; kemur ekki &iacute; sta&eth; reglubundins eftirlits &thorn;ar sem l&ouml;g, reglur e&eth;a rekstrar&ouml;ryggi krefjast &thorn;ess.",
+      "Triotech getur uppf&aelig;rt &thorn;j&oacute;nustuna, &ouml;ryggisstillingar og notendavi&eth;m&oacute;t til a&eth; b&aelig;ta rekstur og &ouml;ryggi."
+    ],
+    cards: [
+      ["A&eth;gangur", "A&eth;gangur er bundinn vi&eth; virka &thorn;j&oacute;nustu og heimila&eth;a notendur."],
+      ["Vi&eth;varanir", "Notendur bera &aacute;byrg&eth; &aacute; r&eacute;ttum netf&ouml;ngum og vi&eth;v&ouml;runarstillingum."],
+      ["&THORN;j&oacute;nusta", "Fyrir spurningar um skilm&aacute;la e&eth;a &thorn;j&oacute;nustu: info@triotech.is."]
+    ]
+  }
+};
+
+function publicPageHtml(pageName = "home") {
+  const page = publicPageText[pageName] || publicPageText.home;
+  const nav = [
+    ["home", "/", "Fors&iacute;&eth;a"],
+    ["contact", "/contact", "Samband"],
+    ["privacy", "/privacy", "Pers&oacute;nuvernd"],
+    ["terms", "/terms", "Skilm&aacute;lar"],
+    ["dashboard", "/dashboard", "Innskr&aacute;ning"]
+  ];
+
+  const navHtml = nav.map(([key, href, label]) => (
+    `<a class="${key === pageName ? "active" : ""}" href="${href}">${label}</a>`
+  )).join("");
+
+  const bodyHtml = page.body.map((paragraph) => `<p>${paragraph}</p>`).join("");
+  const cardsHtml = page.cards.map(([title, text]) => (
+    `<article><h2>${title}</h2><p>${text}</p></article>`
+  )).join("");
+
+  return String.raw`<!doctype html>
+<html lang="is">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Triotech Snjallhus IoT monitoring for devices, alarms, temperature, humidity and power state.">
+  <title>${page.title}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --line: #d7dde7;
+      --text: #172033;
+      --muted: #647086;
+      --brand: #1f6feb;
+      --brand-dark: #163f91;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .topbar,
+    main,
+    footer {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      min-height: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .brand {
+      font-weight: 700;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 18px;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    nav a {
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 7px 10px;
+      background: transparent;
+      font-size: 14px;
+    }
+
+    nav a:hover,
+    nav a.active {
+      border-color: var(--line);
+      background: #fff;
+      color: var(--brand-dark);
+    }
+
+    main {
+      padding: 46px 0 42px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+      gap: 32px;
+      align-items: start;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--brand-dark);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      font-size: 13px;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 48px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      margin: 0;
+      color: #2f3a4f;
+      font-size: 20px;
+      max-width: 760px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px;
+    }
+
+    .panel strong {
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    .panel a,
+    .content a {
+      color: var(--brand-dark);
+      font-weight: 700;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 22px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      border-radius: 6px;
+      padding: 0 14px;
+      border: 1px solid var(--brand);
+      background: var(--brand);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .button.secondary {
+      background: #fff;
+      color: var(--brand-dark);
+      border-color: var(--line);
+    }
+
+    .content {
+      margin-top: 34px;
+      max-width: 850px;
+    }
+
+    .cards {
+      margin-top: 30px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    article {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    article h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    article p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    footer {
+      padding: 22px 0 34px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 760px) {
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 16px 0;
+      }
+
+      nav {
+        justify-content: flex-start;
+      }
+
+      .hero,
+      .cards {
+        grid-template-columns: 1fr;
+      }
+
+      main {
+        padding-top: 30px;
+      }
+
+      h1 {
+        font-size: 34px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <a class="brand" href="/">Triotech Snjallh&uacute;s</a>
+      <nav aria-label="Public navigation">${navHtml}</nav>
+    </div>
+  </header>
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">${page.eyebrow}</p>
+        <h1>${page.heading}</h1>
+        <p class="lead">${page.lead}</p>
+        <div class="actions">
+          <a class="button" href="/dashboard">Innskr&aacute;ning</a>
+          <a class="button secondary" href="/contact">Hafa samband</a>
+        </div>
+      </div>
+      <aside class="panel">
+        <strong>Smart Home Guardian</strong>
+        <p>Business IoT monitoring dashboard for Triotech customers.</p>
+        <p><a href="mailto:info@triotech.is">info@triotech.is</a></p>
+      </aside>
+    </section>
+    <section class="content">${bodyHtml}</section>
+    <section class="cards">${cardsHtml}</section>
+  </main>
+  <footer>
+    Triotech &middot; Snjallh&uacute;s IoT monitoring &middot; <a href="mailto:info@triotech.is">info@triotech.is</a>
+  </footer>
+</body>
+</html>`;
+}
+
+function publicRobotsTxt(req) {
+  const baseUrl = publicBaseUrl(req);
+
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "Allow: /contact",
+    "Allow: /privacy",
+    "Allow: /terms",
+    "Disallow: /dashboard",
+    "Disallow: /settings",
+    "Disallow: /alarms",
+    "Disallow: /reset-password",
+    "Disallow: /api/",
+    `Sitemap: ${baseUrl}/sitemap.xml`,
+    ""
+  ].join("\n");
+}
+
+function publicSitemapXml(req) {
+  const baseUrl = publicBaseUrl(req);
+  const urls = ["", "/contact", "/privacy", "/terms"].map((path) => (
+    `  <url><loc>${baseUrl}${path}</loc></url>`
+  )).join("\n");
+
+  return String.raw`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls}
+</urlset>
+`;
+}
+
 function isAuthorizedToken(value) {
   return Boolean(API_TOKEN) && value === API_TOKEN;
 }
@@ -3651,6 +4033,30 @@ app.get("/health", async () => {
 });
 
 app.get("/", async (req, reply) => {
+  return reply.type("text/html").send(publicPageHtml("home"));
+});
+
+app.get("/contact", async (req, reply) => {
+  return reply.type("text/html").send(publicPageHtml("contact"));
+});
+
+app.get("/privacy", async (req, reply) => {
+  return reply.type("text/html").send(publicPageHtml("privacy"));
+});
+
+app.get("/terms", async (req, reply) => {
+  return reply.type("text/html").send(publicPageHtml("terms"));
+});
+
+app.get("/robots.txt", async (req, reply) => {
+  return reply.type("text/plain").send(publicRobotsTxt(req));
+});
+
+app.get("/sitemap.xml", async (req, reply) => {
+  return reply.type("application/xml").send(publicSitemapXml(req));
+});
+
+app.get("/app", async (req, reply) => {
   return reply.type("text/html").send(dashboardHtml);
 });
 
