@@ -27,8 +27,8 @@ const TELEMETRY_LOG_INTERVAL_MS = Math.max(10000, Number(process.env.TELEMETRY_L
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
-const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "customer-1";
-const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
+const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "triotech";
+const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Triotech";
 const PUBLIC_APP_URL = (process.env.PUBLIC_APP_URL || "").replace(/\/+$/, "");
 const ALERT_EMAIL_ENABLED = String(process.env.ALERT_EMAIL_ENABLED || "false").toLowerCase() === "true";
 const ALERT_EMAIL_BATCH_MS = Math.max(0, Number(process.env.ALERT_EMAIL_BATCH_MS || 120000));
@@ -459,6 +459,67 @@ const dashboardHtml = String.raw`<!doctype html>
       flex-wrap: wrap;
     }
 
+    .super-admin-section {
+      display: grid;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .admin-panel {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .admin-panel h3 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .admin-form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .admin-form input,
+    .admin-form select,
+    .admin-table input,
+    .admin-table select {
+      width: 16ch;
+      height: 30px;
+      padding: 0 8px;
+    }
+
+    .admin-form .wide-input,
+    .admin-table .wide-input {
+      width: 28ch;
+    }
+
+    .admin-table {
+      min-width: 860px;
+      font-size: 13px;
+    }
+
+    .admin-table th,
+    .admin-table td {
+      padding: 7px 6px;
+    }
+
+    .danger-button {
+      border-color: var(--alarm-line);
+      background: #9f1d2f;
+    }
+
+    .status-message {
+      min-height: 18px;
+      color: var(--muted);
+    }
+
     .empty {
       padding: 16px;
       color: var(--muted);
@@ -796,6 +857,97 @@ const dashboardHtml = String.raw`<!doctype html>
           <span id="notificationEmailsStatus"></span>
         </div>
       </div>
+
+      <div id="superAdminSection" class="super-admin-section" hidden>
+        <h2 id="superAdminTitle">Kerfisstj&oacute;rn</h2>
+
+        <div class="admin-panel">
+          <h3 id="adminCustomersTitle">Vi&eth;skiptavinir</h3>
+          <div class="admin-form">
+            <input id="adminCustomerIdInput" type="text" autocomplete="off" placeholder="customer-id">
+            <input id="adminCustomerNameInput" class="wide-input" type="text" autocomplete="off" placeholder="Nafn">
+            <select id="adminCustomerStatusSelect"></select>
+            <select id="adminCustomerPlanSelect"></select>
+            <input id="adminCustomerPaidUntilInput" type="date">
+            <select id="adminCustomerLoginSelect"></select>
+            <button id="createCustomerButton" type="button">B&uacute;a til</button>
+            <span id="adminCustomersStatus" class="status-message"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th id="adminCustomerIdHeader">ID</th>
+                  <th id="adminCustomerNameHeader">Nafn</th>
+                  <th id="adminCustomerStatusHeader">Sta&eth;a</th>
+                  <th id="adminCustomerPlanHeader">&Aacute;skrift</th>
+                  <th id="adminCustomerPaidUntilHeader">Greitt til</th>
+                  <th id="adminCustomerLoginHeader">A&eth;gangur</th>
+                  <th id="adminCustomerSaveHeader">Vista</th>
+                  <th id="adminCustomerDeleteHeader">Ey&eth;a</th>
+                </tr>
+              </thead>
+              <tbody id="adminCustomerRows">
+                <tr><td colspan="8" class="empty">Engir vi&eth;skiptavinir.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="admin-panel">
+          <h3 id="adminUsersTitle">Notendur</h3>
+          <div class="admin-form">
+            <input id="adminUserEmailInput" class="wide-input" type="email" autocomplete="off" placeholder="netfang">
+            <select id="adminUserCustomerSelect"></select>
+            <select id="adminUserRoleSelect"></select>
+            <button id="createUserButton" type="button">B&aelig;ta vi&eth;</button>
+            <span id="adminUsersStatus" class="status-message"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th id="adminUserEmailHeader">Netfang</th>
+                  <th id="adminUserCustomerHeader">Vi&eth;skiptavinur</th>
+                  <th id="adminUserRoleHeader">Hlutverk</th>
+                  <th id="adminUserActiveHeader">Virkur</th>
+                  <th id="adminUserMustChangeHeader">N&yacute;tt lykilor&eth;</th>
+                  <th id="adminUserSaveHeader">Vista</th>
+                  <th id="adminUserResetHeader">Endursetja</th>
+                </tr>
+              </thead>
+              <tbody id="adminUserRows">
+                <tr><td colspan="7" class="empty">Engir notendur.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="admin-panel">
+          <h3 id="adminDevicesTitle">T&aelig;kja&uacute;thlutun</h3>
+          <div class="admin-form">
+            <input id="adminDeviceIdInput" type="text" autocomplete="off" placeholder="SH1000">
+            <select id="adminDeviceCustomerSelect"></select>
+            <button id="assignDeviceButton" type="button">Vista</button>
+            <span id="adminDevicesStatus" class="status-message"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th id="adminDeviceIdHeader">T&aelig;ki</th>
+                  <th id="adminDeviceCustomerHeader">Vi&eth;skiptavinur</th>
+                  <th id="adminDeviceUpdatedHeader">Uppf&aelig;rt</th>
+                  <th id="adminDeviceSaveHeader">Vista</th>
+                </tr>
+              </thead>
+              <tbody id="adminDeviceRows">
+                <tr><td colspan="4" class="empty">Engin t&aelig;ki.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -855,6 +1007,50 @@ const dashboardHtml = String.raw`<!doctype html>
     const notificationEmailsInput = document.getElementById("notificationEmailsInput");
     const saveNotificationEmails = document.getElementById("saveNotificationEmails");
     const notificationEmailsStatus = document.getElementById("notificationEmailsStatus");
+    const superAdminSection = document.getElementById("superAdminSection");
+    const superAdminTitle = document.getElementById("superAdminTitle");
+    const adminCustomersTitle = document.getElementById("adminCustomersTitle");
+    const adminCustomerIdInput = document.getElementById("adminCustomerIdInput");
+    const adminCustomerNameInput = document.getElementById("adminCustomerNameInput");
+    const adminCustomerStatusSelect = document.getElementById("adminCustomerStatusSelect");
+    const adminCustomerPlanSelect = document.getElementById("adminCustomerPlanSelect");
+    const adminCustomerPaidUntilInput = document.getElementById("adminCustomerPaidUntilInput");
+    const adminCustomerLoginSelect = document.getElementById("adminCustomerLoginSelect");
+    const createCustomerButton = document.getElementById("createCustomerButton");
+    const adminCustomersStatus = document.getElementById("adminCustomersStatus");
+    const adminCustomerRows = document.getElementById("adminCustomerRows");
+    const adminCustomerIdHeader = document.getElementById("adminCustomerIdHeader");
+    const adminCustomerNameHeader = document.getElementById("adminCustomerNameHeader");
+    const adminCustomerStatusHeader = document.getElementById("adminCustomerStatusHeader");
+    const adminCustomerPlanHeader = document.getElementById("adminCustomerPlanHeader");
+    const adminCustomerPaidUntilHeader = document.getElementById("adminCustomerPaidUntilHeader");
+    const adminCustomerLoginHeader = document.getElementById("adminCustomerLoginHeader");
+    const adminCustomerSaveHeader = document.getElementById("adminCustomerSaveHeader");
+    const adminCustomerDeleteHeader = document.getElementById("adminCustomerDeleteHeader");
+    const adminUsersTitle = document.getElementById("adminUsersTitle");
+    const adminUserEmailInput = document.getElementById("adminUserEmailInput");
+    const adminUserCustomerSelect = document.getElementById("adminUserCustomerSelect");
+    const adminUserRoleSelect = document.getElementById("adminUserRoleSelect");
+    const createUserButton = document.getElementById("createUserButton");
+    const adminUsersStatus = document.getElementById("adminUsersStatus");
+    const adminUserRows = document.getElementById("adminUserRows");
+    const adminUserEmailHeader = document.getElementById("adminUserEmailHeader");
+    const adminUserCustomerHeader = document.getElementById("adminUserCustomerHeader");
+    const adminUserRoleHeader = document.getElementById("adminUserRoleHeader");
+    const adminUserActiveHeader = document.getElementById("adminUserActiveHeader");
+    const adminUserMustChangeHeader = document.getElementById("adminUserMustChangeHeader");
+    const adminUserSaveHeader = document.getElementById("adminUserSaveHeader");
+    const adminUserResetHeader = document.getElementById("adminUserResetHeader");
+    const adminDevicesTitle = document.getElementById("adminDevicesTitle");
+    const adminDeviceIdInput = document.getElementById("adminDeviceIdInput");
+    const adminDeviceCustomerSelect = document.getElementById("adminDeviceCustomerSelect");
+    const assignDeviceButton = document.getElementById("assignDeviceButton");
+    const adminDevicesStatus = document.getElementById("adminDevicesStatus");
+    const adminDeviceRows = document.getElementById("adminDeviceRows");
+    const adminDeviceIdHeader = document.getElementById("adminDeviceIdHeader");
+    const adminDeviceCustomerHeader = document.getElementById("adminDeviceCustomerHeader");
+    const adminDeviceUpdatedHeader = document.getElementById("adminDeviceUpdatedHeader");
+    const adminDeviceSaveHeader = document.getElementById("adminDeviceSaveHeader");
     const deviceDetailSection = document.getElementById("deviceDetailSection");
     const deviceDetailBack = document.getElementById("deviceDetailBack");
     const deviceDetailTitle = document.getElementById("deviceDetailTitle");
@@ -904,6 +1100,9 @@ const dashboardHtml = String.raw`<!doctype html>
     let telemetryRefreshTimer = null;
     let currentUser = null;
     let currentLanguage = localStorage.getItem("snjallhus_language") || "is";
+    let adminCustomers = [];
+    let adminUsers = [];
+    let adminDevices = [];
     emailInput.value = localStorage.getItem("snjallhus_email") || "";
     deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
     alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
@@ -1016,7 +1215,40 @@ const dashboardHtml = String.raw`<!doctype html>
         detailHighHumidity: "Settur h\u00e1r raki",
         detailInterval: "Uppf\u00e6rslu-ti\u00f0ni",
         chartLegendTemp: "Hiti",
-        chartLegendHumidity: "Raki"
+        chartLegendHumidity: "Raki",
+        superAdmin: "Kerfisstj\u00f3rn",
+        adminCustomers: "Vi\u00f0skiptavinir",
+        adminUsers: "Notendur",
+        adminDevices: "T\u00e6kja\u00fathlutun",
+        userEmail: "Netfang",
+        customerId: "Au\u00f0kenni",
+        customerName: "Nafn",
+        subscriptionStatus: "Sta\u00f0a",
+        subscriptionPlan: "\u00c1skrift",
+        paidUntil: "Greitt til",
+        loginAccess: "A\u00f0gangur",
+        deleteText: "Ey\u00f0a",
+        create: "B\u00faa til",
+        addUser: "B\u00e6ta vi\u00f0",
+        assignDevice: "Vista",
+        userRole: "Hlutverk",
+        activeUser: "Virkur",
+        mustChangePassword: "Skiptir um lykilor\u00f0",
+        resetUserPassword: "N\u00fdtt lykilor\u00f0",
+        tempPassword: "T\u00edmabundi\u00f0 lykilor\u00f0",
+        updated: "Uppf\u00e6rt",
+        yes: "j\u00e1",
+        no: "nei",
+        accessOn: "virkur",
+        accessOff: "loka\u00f0",
+        noCustomers: "Engir vi\u00f0skiptavinir.",
+        noUsers: "Engir notendur.",
+        noAdminDevices: "Engin t\u00e6ki.",
+        confirmDeleteCustomer: "Ey\u00f0a vi\u00f0skiptavini? A\u00f0eins t\u00f3mir vi\u00f0skiptavinir eru eyddir.",
+        customerIdPlaceholder: "customer-id",
+        customerNamePlaceholder: "Nafn",
+        userEmailPlaceholder: "netfang",
+        deviceIdPlaceholder: "SH1000"
       },
       en: {
         pageTitle: "Snjalli Husvordurinn",
@@ -1112,7 +1344,40 @@ const dashboardHtml = String.raw`<!doctype html>
         detailHighHumidity: "Set high humidity",
         detailInterval: "Update frequency",
         chartLegendTemp: "Temperature",
-        chartLegendHumidity: "Humidity"
+        chartLegendHumidity: "Humidity",
+        superAdmin: "System admin",
+        adminCustomers: "Customers",
+        adminUsers: "Users",
+        adminDevices: "Device assignment",
+        userEmail: "Email",
+        customerId: "ID",
+        customerName: "Name",
+        subscriptionStatus: "Status",
+        subscriptionPlan: "Plan",
+        paidUntil: "Paid until",
+        loginAccess: "Access",
+        deleteText: "Delete",
+        create: "Create",
+        addUser: "Add user",
+        assignDevice: "Save",
+        userRole: "Role",
+        activeUser: "Active",
+        mustChangePassword: "Must change password",
+        resetUserPassword: "New password",
+        tempPassword: "Temporary password",
+        updated: "Updated",
+        yes: "yes",
+        no: "no",
+        accessOn: "enabled",
+        accessOff: "blocked",
+        noCustomers: "No customers.",
+        noUsers: "No users.",
+        noAdminDevices: "No devices.",
+        confirmDeleteCustomer: "Delete customer? Only empty customers can be deleted.",
+        customerIdPlaceholder: "customer-id",
+        customerNamePlaceholder: "Name",
+        userEmailPlaceholder: "email",
+        deviceIdPlaceholder: "SH1000"
       }
     };
 
@@ -1196,6 +1461,36 @@ const dashboardHtml = String.raw`<!doctype html>
       notificationEmailsLabel.textContent = t("notificationEmails");
       notificationEmailsInput.placeholder = t("notificationEmailsPlaceholder");
       saveNotificationEmails.textContent = t("saveNotificationEmails");
+      superAdminTitle.textContent = t("superAdmin");
+      adminCustomersTitle.textContent = t("adminCustomers");
+      adminUsersTitle.textContent = t("adminUsers");
+      adminDevicesTitle.textContent = t("adminDevices");
+      adminCustomerIdInput.placeholder = t("customerIdPlaceholder");
+      adminCustomerNameInput.placeholder = t("customerNamePlaceholder");
+      createCustomerButton.textContent = t("create");
+      adminCustomerIdHeader.textContent = t("customerId");
+      adminCustomerNameHeader.textContent = t("customerName");
+      adminCustomerStatusHeader.textContent = t("subscriptionStatus");
+      adminCustomerPlanHeader.textContent = t("subscriptionPlan");
+      adminCustomerPaidUntilHeader.textContent = t("paidUntil");
+      adminCustomerLoginHeader.textContent = t("loginAccess");
+      adminCustomerSaveHeader.textContent = t("save");
+      adminCustomerDeleteHeader.textContent = t("deleteText");
+      adminUserEmailInput.placeholder = t("userEmailPlaceholder");
+      createUserButton.textContent = t("addUser");
+      adminUserEmailHeader.textContent = t("userEmail");
+      adminUserCustomerHeader.textContent = t("customer");
+      adminUserRoleHeader.textContent = t("userRole");
+      adminUserActiveHeader.textContent = t("activeUser");
+      adminUserMustChangeHeader.textContent = t("mustChangePassword");
+      adminUserSaveHeader.textContent = t("save");
+      adminUserResetHeader.textContent = t("resetUserPassword");
+      adminDeviceIdInput.placeholder = t("deviceIdPlaceholder");
+      assignDeviceButton.textContent = t("assignDevice");
+      adminDeviceIdHeader.textContent = t("columnDeviceId");
+      adminDeviceCustomerHeader.textContent = t("customer");
+      adminDeviceUpdatedHeader.textContent = t("updated");
+      adminDeviceSaveHeader.textContent = t("save");
       deviceDetailBack.textContent = t("backToDevices");
       deviceTagsTitle.textContent = t("currentTags");
       deviceTagHeader.textContent = "Tag";
@@ -1570,6 +1865,320 @@ const dashboardHtml = String.raw`<!doctype html>
 
     async function putJson(url, body) {
       return sendJson("PUT", url, body);
+    }
+
+    async function postJson(url, body) {
+      return sendJson("POST", url, body);
+    }
+
+    async function deleteJson(url) {
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: authHeaders()
+      });
+
+      if (!response.ok) {
+        const responseBody = await response.json().catch(() => ({}));
+        throw new Error(responseBody.error || ("HTTP " + response.status));
+      }
+
+      return response.json();
+    }
+
+    async function getJson(url) {
+      const response = await fetch(url, { headers: authHeaders() });
+
+      if (!response.ok) {
+        const responseBody = await response.json().catch(() => ({}));
+        throw new Error(responseBody.error || ("HTTP " + response.status));
+      }
+
+      return response.json();
+    }
+
+    function dateInputValue(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toISOString().slice(0, 10);
+    }
+
+    function setSelectOptions(select, options, selectedValue) {
+      select.textContent = "";
+
+      for (const optionValue of options) {
+        const option = document.createElement("option");
+        option.value = String(optionValue.value);
+        option.textContent = optionValue.label;
+        select.appendChild(option);
+      }
+
+      if ([...select.options].some((option) => option.value === String(selectedValue))) {
+        select.value = String(selectedValue);
+      }
+    }
+
+    function subscriptionStatusOptions() {
+      return ["active", "trialing", "grace", "past_due", "suspended", "canceled"]
+        .map((value) => ({ value, label: value }));
+    }
+
+    function subscriptionPlanOptions() {
+      return ["monthly", "yearly", "trial", "manual"]
+        .map((value) => ({ value, label: value }));
+    }
+
+    function loginOptions() {
+      return [
+        { value: "true", label: t("accessOn") },
+        { value: "false", label: t("accessOff") }
+      ];
+    }
+
+    function boolOptions() {
+      return [
+        { value: "true", label: t("yes") },
+        { value: "false", label: t("no") }
+      ];
+    }
+
+    function roleOptions() {
+      return [
+        { value: "customer", label: "customer" },
+        { value: "admin", label: "admin" },
+        { value: "super_admin", label: "super_admin" }
+      ];
+    }
+
+    function customerOptions(includeBlank = false) {
+      const options = adminCustomers.map((customer) => ({
+        value: customer.id,
+        label: customer.name + " (" + customer.id + ")"
+      }));
+
+      return includeBlank ? [{ value: "", label: "-" }, ...options] : options;
+    }
+
+    function populateAdminSelects() {
+      setSelectOptions(adminCustomerStatusSelect, subscriptionStatusOptions(), "active");
+      setSelectOptions(adminCustomerPlanSelect, subscriptionPlanOptions(), "monthly");
+      setSelectOptions(adminCustomerLoginSelect, loginOptions(), "true");
+      setSelectOptions(adminUserRoleSelect, roleOptions(), "customer");
+      setSelectOptions(adminUserCustomerSelect, customerOptions(true), adminUserCustomerSelect.value);
+      setSelectOptions(adminDeviceCustomerSelect, customerOptions(false), adminDeviceCustomerSelect.value);
+    }
+
+    function adminInput(value, className) {
+      const input = document.createElement("input");
+      input.className = className || "";
+      input.value = value || "";
+      return input;
+    }
+
+    function adminDateInput(value) {
+      const input = document.createElement("input");
+      input.type = "date";
+      input.value = dateInputValue(value);
+      return input;
+    }
+
+    function adminSelect(options, value) {
+      const select = document.createElement("select");
+      setSelectOptions(select, options, value);
+      return select;
+    }
+
+    function clearAdminTables() {
+      adminCustomerRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noCustomers") + '</td></tr>';
+      adminUserRows.innerHTML = '<tr><td colspan="7" class="empty">' + t("noUsers") + '</td></tr>';
+      adminDeviceRows.innerHTML = '<tr><td colspan="4" class="empty">' + t("noAdminDevices") + '</td></tr>';
+    }
+
+    function renderAdminCustomers() {
+      adminCustomerRows.textContent = "";
+      populateAdminSelects();
+
+      if (!adminCustomers.length) {
+        adminCustomerRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noCustomers") + '</td></tr>';
+        return;
+      }
+
+      for (const customer of adminCustomers) {
+        const row = document.createElement("tr");
+        const nameInput = adminInput(customer.name, "wide-input");
+        const statusSelect = adminSelect(subscriptionStatusOptions(), customer.subscription_status);
+        const planSelect = adminSelect(subscriptionPlanOptions(), customer.subscription_plan);
+        const paidUntilInput = adminDateInput(customer.paid_until);
+        const loginSelect = adminSelect(loginOptions(), String(customer.login_enabled !== false));
+        const saveButton = document.createElement("button");
+        const deleteButton = document.createElement("button");
+
+        saveButton.type = "button";
+        saveButton.textContent = t("save");
+        deleteButton.type = "button";
+        deleteButton.textContent = t("deleteText");
+        deleteButton.className = "danger-button";
+
+        saveButton.addEventListener("click", async () => {
+          adminCustomersStatus.textContent = t("saving");
+          try {
+            await patchJson("/api/v1/admin/customers/" + encodeURIComponent(customer.id), {
+              name: nameInput.value,
+              subscription_status: statusSelect.value,
+              subscription_plan: planSelect.value,
+              paid_until: paidUntilInput.value || null,
+              login_enabled: loginSelect.value === "true"
+            });
+            adminCustomersStatus.textContent = t("settingsSaved");
+            await loadSuperAdminWorkspace();
+          } catch (error) {
+            adminCustomersStatus.textContent = error.message;
+          }
+        });
+
+        deleteButton.addEventListener("click", async () => {
+          if (!confirm(t("confirmDeleteCustomer"))) {
+            return;
+          }
+
+          adminCustomersStatus.textContent = t("saving");
+          try {
+            await deleteJson("/api/v1/admin/customers/" + encodeURIComponent(customer.id));
+            adminCustomersStatus.textContent = t("settingsSaved");
+            await loadSettingsCustomers();
+            await loadSuperAdminWorkspace();
+          } catch (error) {
+            adminCustomersStatus.textContent = error.message;
+          }
+        });
+
+        cell(row, customer.id);
+        cell(row, nameInput);
+        cell(row, statusSelect);
+        cell(row, planSelect);
+        cell(row, paidUntilInput);
+        cell(row, loginSelect);
+        cell(row, saveButton);
+        cell(row, deleteButton);
+        adminCustomerRows.appendChild(row);
+      }
+    }
+
+    function renderAdminUsers() {
+      adminUserRows.textContent = "";
+
+      if (!adminUsers.length) {
+        adminUserRows.innerHTML = '<tr><td colspan="7" class="empty">' + t("noUsers") + '</td></tr>';
+        return;
+      }
+
+      for (const user of adminUsers) {
+        const row = document.createElement("tr");
+        const customerSelect = adminSelect(customerOptions(true), user.customer_id || "");
+        const roleSelect = adminSelect(roleOptions(), user.role);
+        const activeSelect = adminSelect(boolOptions(), String(user.active));
+        const mustChangeSelect = adminSelect(boolOptions(), String(user.must_change_password));
+        const saveButton = document.createElement("button");
+        const resetButton = document.createElement("button");
+
+        saveButton.type = "button";
+        saveButton.textContent = t("save");
+        resetButton.type = "button";
+        resetButton.textContent = t("resetUserPassword");
+
+        saveButton.addEventListener("click", async () => {
+          adminUsersStatus.textContent = t("saving");
+          try {
+            await patchJson("/api/v1/admin/users/" + encodeURIComponent(user.id), {
+              customer_id: customerSelect.value || null,
+              role: roleSelect.value,
+              active: activeSelect.value === "true",
+              must_change_password: mustChangeSelect.value === "true"
+            });
+            adminUsersStatus.textContent = t("settingsSaved");
+            await loadSuperAdminWorkspace();
+          } catch (error) {
+            adminUsersStatus.textContent = error.message;
+          }
+        });
+
+        resetButton.addEventListener("click", async () => {
+          adminUsersStatus.textContent = t("saving");
+          try {
+            const result = await patchJson("/api/v1/admin/users/" + encodeURIComponent(user.id), {
+              customer_id: customerSelect.value || null,
+              role: roleSelect.value,
+              active: activeSelect.value === "true",
+              must_change_password: true,
+              reset_password: true
+            });
+            adminUsersStatus.textContent = t("tempPassword") + ": " + result.temp_password;
+            await loadSuperAdminWorkspace();
+          } catch (error) {
+            adminUsersStatus.textContent = error.message;
+          }
+        });
+
+        cell(row, user.email);
+        cell(row, customerSelect);
+        cell(row, roleSelect);
+        cell(row, activeSelect);
+        cell(row, mustChangeSelect);
+        cell(row, saveButton);
+        cell(row, resetButton);
+        adminUserRows.appendChild(row);
+      }
+    }
+
+    function renderAdminDevices() {
+      adminDeviceRows.textContent = "";
+
+      if (!adminDevices.length) {
+        adminDeviceRows.innerHTML = '<tr><td colspan="4" class="empty">' + t("noAdminDevices") + '</td></tr>';
+        return;
+      }
+
+      for (const device of adminDevices) {
+        const row = document.createElement("tr");
+        const customerSelect = adminSelect(customerOptions(false), device.customer_id || "");
+        const saveButton = document.createElement("button");
+
+        saveButton.type = "button";
+        saveButton.textContent = t("save");
+
+        saveButton.addEventListener("click", async () => {
+          adminDevicesStatus.textContent = t("saving");
+          try {
+            await patchJson("/api/v1/admin/devices/" + encodeURIComponent(device.device_id), {
+              customer_id: customerSelect.value
+            });
+            adminDevicesStatus.textContent = t("settingsSaved");
+            await loadSuperAdminWorkspace();
+            await loadState();
+          } catch (error) {
+            adminDevicesStatus.textContent = error.message;
+          }
+        });
+
+        cell(row, device.device_id);
+        cell(row, customerSelect);
+        cell(row, fmtTime(device.updated_at));
+        cell(row, saveButton);
+        adminDeviceRows.appendChild(row);
+      }
+    }
+
+    function renderSuperAdminWorkspace() {
+      superAdminSection.hidden = !isSettingsPage || !isSuperUser();
+
+      if (superAdminSection.hidden) {
+        return;
+      }
+
+      populateAdminSelects();
+      renderAdminCustomers();
+      renderAdminUsers();
+      renderAdminDevices();
     }
 
     async function saveRow(deviceId, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, button) {
@@ -2166,6 +2775,7 @@ const dashboardHtml = String.raw`<!doctype html>
         const body = await response.json();
         notificationEmailsInput.value = (body.emails || []).join("\n");
         notificationEmailsStatus.textContent = "";
+        await loadSuperAdminWorkspace();
       } catch (error) {
         notificationEmailsStatus.textContent = error.message;
       }
@@ -2195,6 +2805,107 @@ const dashboardHtml = String.raw`<!doctype html>
         notificationEmailsStatus.textContent = error.message;
       } finally {
         saveNotificationEmails.disabled = false;
+      }
+    }
+
+    async function loadSuperAdminWorkspace() {
+      if (!isSettingsPage || !isSuperUser()) {
+        superAdminSection.hidden = true;
+        adminCustomers = [];
+        adminUsers = [];
+        adminDevices = [];
+        clearAdminTables();
+        return;
+      }
+
+      superAdminSection.hidden = false;
+      adminCustomersStatus.textContent = t("loading");
+
+      try {
+        const [customersBody, usersBody, devicesBody] = await Promise.all([
+          getJson("/api/v1/admin/customers"),
+          getJson("/api/v1/admin/users"),
+          getJson("/api/v1/admin/devices")
+        ]);
+
+        adminCustomers = customersBody.customers || [];
+        adminUsers = usersBody.users || [];
+        adminDevices = devicesBody.devices || [];
+        adminCustomersStatus.textContent = "";
+        adminUsersStatus.textContent = "";
+        adminDevicesStatus.textContent = "";
+        renderSuperAdminWorkspace();
+      } catch (error) {
+        adminCustomersStatus.textContent = error.message;
+      }
+    }
+
+    async function createCustomerFromForm() {
+      createCustomerButton.disabled = true;
+      adminCustomersStatus.textContent = t("saving");
+
+      try {
+        await postJson("/api/v1/admin/customers", {
+          id: adminCustomerIdInput.value,
+          name: adminCustomerNameInput.value,
+          subscription_status: adminCustomerStatusSelect.value,
+          subscription_plan: adminCustomerPlanSelect.value,
+          paid_until: adminCustomerPaidUntilInput.value || null,
+          login_enabled: adminCustomerLoginSelect.value === "true"
+        });
+
+        adminCustomerIdInput.value = "";
+        adminCustomerNameInput.value = "";
+        adminCustomerPaidUntilInput.value = "";
+        adminCustomersStatus.textContent = t("settingsSaved");
+        await loadSettingsCustomers();
+        await loadSuperAdminWorkspace();
+      } catch (error) {
+        adminCustomersStatus.textContent = error.message;
+      } finally {
+        createCustomerButton.disabled = false;
+      }
+    }
+
+    async function createUserFromForm() {
+      createUserButton.disabled = true;
+      adminUsersStatus.textContent = t("saving");
+
+      try {
+        const result = await postJson("/api/v1/admin/users", {
+          email: adminUserEmailInput.value,
+          customer_id: adminUserCustomerSelect.value || null,
+          role: adminUserRoleSelect.value
+        });
+
+        adminUserEmailInput.value = "";
+        adminUsersStatus.textContent = t("tempPassword") + ": " + result.temp_password;
+        await loadSuperAdminWorkspace();
+      } catch (error) {
+        adminUsersStatus.textContent = error.message;
+      } finally {
+        createUserButton.disabled = false;
+      }
+    }
+
+    async function assignDeviceFromForm() {
+      assignDeviceButton.disabled = true;
+      adminDevicesStatus.textContent = t("saving");
+
+      try {
+        await postJson("/api/v1/admin/devices", {
+          device_id: adminDeviceIdInput.value,
+          customer_id: adminDeviceCustomerSelect.value
+        });
+
+        adminDeviceIdInput.value = "";
+        adminDevicesStatus.textContent = t("settingsSaved");
+        await loadSuperAdminWorkspace();
+        await loadState();
+      } catch (error) {
+        adminDevicesStatus.textContent = error.message;
+      } finally {
+        assignDeviceButton.disabled = false;
       }
     }
 
@@ -2250,6 +2961,11 @@ const dashboardHtml = String.raw`<!doctype html>
         }
         notificationEmailsInput.value = "";
         notificationEmailsStatus.textContent = "";
+        superAdminSection.hidden = true;
+        adminCustomers = [];
+        adminUsers = [];
+        adminDevices = [];
+        clearAdminTables();
       }
     }
 
@@ -2488,6 +3204,7 @@ const dashboardHtml = String.raw`<!doctype html>
         latestAlarms.filter((alarm) => alarm.device_id === detailDeviceId)
       );
       renderDeviceTags(latestRaw);
+      renderSuperAdminWorkspace();
     });
 
     deviceFilter.addEventListener("input", () => {
@@ -2525,6 +3242,9 @@ const dashboardHtml = String.raw`<!doctype html>
 
     settingsCustomerSelect.addEventListener("change", loadNotificationSettings);
     saveNotificationEmails.addEventListener("click", saveNotificationEmailSettings);
+    createCustomerButton.addEventListener("click", createCustomerFromForm);
+    createUserButton.addEventListener("click", createUserFromForm);
+    assignDeviceButton.addEventListener("click", assignDeviceFromForm);
 
     document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
       button.addEventListener("click", () => {
@@ -2979,6 +3699,10 @@ function hashPassword(password) {
   return `scrypt:${salt}:${hash}`;
 }
 
+function generateTempPassword() {
+  return crypto.randomBytes(18).toString("base64url").slice(0, 18);
+}
+
 function verifyPassword(password, storedHash) {
   const parts = String(storedHash || "").split(":");
 
@@ -3046,7 +3770,7 @@ function isAdminUser(user) {
 }
 
 function subscriptionFromRow(row) {
-  if (!row || isAdminRole(row.role)) {
+  if (!row || row.role === "super_admin") {
     return null;
   }
 
@@ -3094,7 +3818,7 @@ function userCanUseDashboard(user) {
     return false;
   }
 
-  if (isAdminUser(user)) {
+  if (isSuperUser(user)) {
     return true;
   }
 
@@ -3899,6 +4623,448 @@ async function saveCustomerSubscription(customerId, values) {
   return customerFromRow(result.rows[0]);
 }
 
+function requestError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function normalizeCustomerId(value) {
+  const id = String(value || "").trim().toLowerCase().replace(/\s+/g, "-");
+
+  if (!/^[a-z0-9_-]{2,64}$/.test(id)) {
+    throw requestError("Customer ID must be 2-64 letters, numbers, dash, or underscore");
+  }
+
+  return id;
+}
+
+function normalizeBoolean(value, fallback = true) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function normalizeSubscriptionStatus(value, fallback = "active") {
+  const status = String(value || fallback).trim().toLowerCase();
+
+  if (!VALID_SUBSCRIPTION_STATUSES.has(status)) {
+    throw requestError("Invalid subscription status");
+  }
+
+  return status;
+}
+
+function normalizeSubscriptionPlan(value, fallback = "monthly") {
+  const plan = String(value || fallback).trim().toLowerCase();
+
+  if (!VALID_SUBSCRIPTION_PLANS.has(plan)) {
+    throw requestError("Invalid subscription plan");
+  }
+
+  return plan;
+}
+
+function normalizePaidUntil(value, fallback = null) {
+  const input = value === undefined ? fallback : value;
+
+  if (input === null || input === "") {
+    return null;
+  }
+
+  const parsed = new Date(input);
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw requestError("Invalid paid_until date");
+  }
+
+  return parsed.toISOString();
+}
+
+async function createCustomer(values) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  const id = normalizeCustomerId(values.id || values.customer_id);
+  const name = String(values.name || "").trim();
+
+  if (!name) {
+    throw requestError("Customer name is required");
+  }
+
+  const result = await db.query(
+    `
+      INSERT INTO customers (
+        id,
+        name,
+        subscription_status,
+        subscription_plan,
+        paid_until,
+        login_enabled
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING
+        id,
+        name,
+        subscription_status,
+        subscription_plan,
+        paid_until,
+        login_enabled,
+        updated_at
+    `,
+    [
+      id,
+      name,
+      normalizeSubscriptionStatus(values.subscription_status, "active"),
+      normalizeSubscriptionPlan(values.subscription_plan, "monthly"),
+      normalizePaidUntil(values.paid_until, null),
+      normalizeBoolean(values.login_enabled, true)
+    ]
+  ).catch((error) => {
+    if (error.code === "23505") {
+      throw requestError("Customer already exists", 409);
+    }
+
+    throw error;
+  });
+
+  return customerFromRow(result.rows[0]);
+}
+
+async function saveCustomerDetails(customerId, values) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  const current = await db.query(
+    "SELECT * FROM customers WHERE id = $1 LIMIT 1",
+    [customerId]
+  );
+
+  if (current.rowCount === 0) {
+    throw requestError("Customer not found", 404);
+  }
+
+  const row = current.rows[0];
+  const name = values.name === undefined ? row.name : String(values.name || "").trim();
+
+  if (!name) {
+    throw requestError("Customer name is required");
+  }
+
+  const result = await db.query(
+    `
+      UPDATE customers
+      SET
+        name = $2,
+        subscription_status = $3,
+        subscription_plan = $4,
+        paid_until = $5,
+        login_enabled = $6,
+        updated_at = now()
+      WHERE id = $1
+      RETURNING
+        id,
+        name,
+        subscription_status,
+        subscription_plan,
+        paid_until,
+        login_enabled,
+        updated_at
+    `,
+    [
+      customerId,
+      name,
+      normalizeSubscriptionStatus(values.subscription_status, row.subscription_status),
+      normalizeSubscriptionPlan(values.subscription_plan, row.subscription_plan),
+      normalizePaidUntil(values.paid_until, row.paid_until),
+      normalizeBoolean(values.login_enabled, row.login_enabled)
+    ]
+  );
+
+  return customerFromRow(result.rows[0]);
+}
+
+async function deleteCustomer(customerId) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  const usage = await db.query(
+    `
+      SELECT
+        (SELECT count(*)::int FROM devices WHERE customer_id = $1) AS devices,
+        (SELECT count(*)::int FROM app_users WHERE customer_id = $1) AS users,
+        (SELECT count(*)::int FROM customer_alarm_email_recipients WHERE customer_id = $1) AS email_recipients
+    `,
+    [customerId]
+  );
+  const counts = usage.rows[0] || {};
+
+  if (counts.devices || counts.users || counts.email_recipients) {
+    throw requestError("Customer still has devices, users, or alarm email recipients", 409);
+  }
+
+  const result = await db.query("DELETE FROM customers WHERE id = $1", [customerId]);
+
+  if (result.rowCount === 0) {
+    throw requestError("Customer not found", 404);
+  }
+}
+
+function adminUserFromRow(row) {
+  return {
+    id: row.id,
+    customer_id: row.customer_id,
+    customer_name: row.customer_name || "",
+    email: row.email,
+    role: row.role,
+    must_change_password: Boolean(row.must_change_password),
+    active: Boolean(row.active),
+    updated_at: row.updated_at
+  };
+}
+
+function normalizeUserRole(value, fallback = "customer") {
+  const role = String(value || fallback).trim().toLowerCase();
+
+  if (!["customer", "admin", "super_admin"].includes(role)) {
+    throw requestError("Invalid user role");
+  }
+
+  return role;
+}
+
+async function listAdminUsers() {
+  if (!db) {
+    return [];
+  }
+
+  const result = await db.query(`
+    SELECT
+      u.id,
+      u.customer_id,
+      c.name AS customer_name,
+      u.email,
+      u.role,
+      u.must_change_password,
+      u.active,
+      u.updated_at
+    FROM app_users u
+    LEFT JOIN customers c ON c.id = u.customer_id
+    ORDER BY u.role DESC, u.email
+  `);
+
+  return result.rows.map(adminUserFromRow);
+}
+
+async function createAdminUser(values) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  const email = normalizeEmail(values.email);
+  const role = normalizeUserRole(values.role, "customer");
+  const customerId = role === "super_admin"
+    ? (values.customer_id ? String(values.customer_id).trim() : null)
+    : String(values.customer_id || "").trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw requestError("Valid email is required");
+  }
+
+  if (customerId) {
+    await assertCustomerExists(customerId);
+  } else if (role !== "super_admin") {
+    throw requestError("Customer is required for this user role");
+  }
+
+  const tempPassword = generateTempPassword();
+  const result = await db.query(
+    `
+      INSERT INTO app_users (
+        id,
+        customer_id,
+        email,
+        password_hash,
+        role,
+        must_change_password,
+        active
+      )
+      VALUES ($1, $2, $3, $4, $5, true, true)
+      RETURNING
+        id,
+        customer_id,
+        (SELECT name FROM customers WHERE id = $2) AS customer_name,
+        email,
+        role,
+        must_change_password,
+        active,
+        updated_at
+    `,
+    [crypto.randomUUID(), customerId, email, hashPassword(tempPassword), role]
+  ).catch((error) => {
+    if (error.code === "23505") {
+      throw requestError("User already exists", 409);
+    }
+
+    throw error;
+  });
+
+  return {
+    user: adminUserFromRow(result.rows[0]),
+    temp_password: tempPassword
+  };
+}
+
+async function updateAdminUser(userId, values, currentUser) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  const current = await db.query(
+    `
+      SELECT
+        id,
+        customer_id,
+        email,
+        role,
+        must_change_password,
+        active
+      FROM app_users
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [userId]
+  );
+
+  if (current.rowCount === 0) {
+    throw requestError("User not found", 404);
+  }
+
+  const row = current.rows[0];
+  const role = normalizeUserRole(values.role, row.role);
+  const customerId = role === "super_admin"
+    ? (values.customer_id === undefined ? row.customer_id : (values.customer_id ? String(values.customer_id).trim() : null))
+    : (values.customer_id === undefined ? row.customer_id : String(values.customer_id || "").trim());
+  const active = normalizeBoolean(values.active, row.active);
+  const mustChangePassword = normalizeBoolean(values.must_change_password, row.must_change_password);
+
+  if (customerId) {
+    await assertCustomerExists(customerId);
+  } else if (role !== "super_admin") {
+    throw requestError("Customer is required for this user role");
+  }
+
+  if (currentUser && currentUser.id === userId && (!active || role !== "super_admin")) {
+    throw requestError("You cannot remove your own super-admin access", 409);
+  }
+
+  let tempPassword = null;
+  let passwordSql = "";
+  const params = [userId, customerId, role, active, mustChangePassword];
+
+  if (values.reset_password === true || values.reset_password === "true") {
+    tempPassword = generateTempPassword();
+    params.push(hashPassword(tempPassword));
+    passwordSql = ", password_hash = $6";
+  }
+
+  const result = await db.query(
+    `
+      UPDATE app_users
+      SET
+        customer_id = $2,
+        role = $3,
+        active = $4,
+        must_change_password = $5,
+        updated_at = now()
+        ${passwordSql}
+      WHERE id = $1
+      RETURNING
+        id,
+        customer_id,
+        (SELECT name FROM customers WHERE id = app_users.customer_id) AS customer_name,
+        email,
+        role,
+        must_change_password,
+        active,
+        updated_at
+    `,
+    params
+  );
+
+  return {
+    user: adminUserFromRow(result.rows[0]),
+    temp_password: tempPassword
+  };
+}
+
+function adminDeviceFromRow(row) {
+  return {
+    device_id: row.device_id,
+    customer_id: row.customer_id,
+    customer_name: row.customer_name || "",
+    updated_at: row.updated_at
+  };
+}
+
+async function listAdminDevices() {
+  if (!db) {
+    return [];
+  }
+
+  const result = await db.query(`
+    SELECT
+      d.device_id,
+      d.customer_id,
+      c.name AS customer_name,
+      d.updated_at
+    FROM devices d
+    LEFT JOIN customers c ON c.id = d.customer_id
+    ORDER BY d.device_id
+  `);
+
+  return result.rows.map(adminDeviceFromRow);
+}
+
+async function assignDeviceToCustomer(deviceId, customerId) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  if (!isValidDeviceId(deviceId)) {
+    throw requestError("Invalid device ID");
+  }
+
+  await assertCustomerExists(customerId);
+
+  const result = await db.query(
+    `
+      INSERT INTO devices (device_id, customer_id)
+      VALUES ($1, $2)
+      ON CONFLICT (device_id)
+      DO UPDATE SET
+        customer_id = EXCLUDED.customer_id,
+        updated_at = now()
+      RETURNING
+        device_id,
+        customer_id,
+        (SELECT name FROM customers WHERE id = $2) AS customer_name,
+        updated_at
+    `,
+    [deviceId, customerId]
+  );
+
+  await refreshDeviceRegistry();
+  publishWebSocketState();
+
+  return adminDeviceFromRow(result.rows[0]);
+}
+
 function parseNotificationEmails(value) {
   const rawValues = Array.isArray(value)
     ? value
@@ -4270,7 +5436,7 @@ function canAccessDevice(user, deviceId) {
     return false;
   }
 
-  if (isAdminUser(user)) {
+  if (isSuperUser(user)) {
     return true;
   }
 
@@ -4288,7 +5454,7 @@ function deviceKnown(deviceId) {
 }
 
 function filterRawStateForUser(user) {
-  if (isAdminUser(user)) {
+  if (isSuperUser(user)) {
     return latestState;
   }
 
@@ -4306,7 +5472,7 @@ function filterRawStateForUser(user) {
 }
 
 function filterDevicesForUser(user, deviceViews) {
-  if (isAdminUser(user)) {
+  if (isSuperUser(user)) {
     return deviceViews;
   }
 
@@ -4314,7 +5480,7 @@ function filterDevicesForUser(user, deviceViews) {
 }
 
 function filterAlarmsForUser(user, alarms) {
-  if (isAdminUser(user)) {
+  if (isSuperUser(user)) {
     return alarms;
   }
 
@@ -5535,7 +6701,7 @@ app.get("/api/v1/devices/:deviceId/alarms", { preHandler: checkAuth }, async (re
 });
 
 app.get("/api/v1/admin/customers", { preHandler: checkAuth }, async (req, reply) => {
-  if (!isAdminUser(req.user)) {
+  if (!isSuperUser(req.user)) {
     reply.code(403);
     return {
       ok: false,
@@ -5549,8 +6715,86 @@ app.get("/api/v1/admin/customers", { preHandler: checkAuth }, async (req, reply)
   };
 });
 
+app.post("/api/v1/admin/customers", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    const customer = await createCustomer(req.body || {});
+
+    return {
+      ok: true,
+      customer
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.patch("/api/v1/admin/customers/:customerId", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  const customerId = String(req.params.customerId || "").trim();
+
+  try {
+    const customer = await saveCustomerDetails(customerId, req.body || {});
+
+    return {
+      ok: true,
+      customer
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.delete("/api/v1/admin/customers/:customerId", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  const customerId = String(req.params.customerId || "").trim();
+
+  try {
+    await deleteCustomer(customerId);
+
+    return {
+      ok: true
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
 app.patch("/api/v1/admin/customers/:customerId/subscription", { preHandler: checkAuth }, async (req, reply) => {
-  if (!isAdminUser(req.user)) {
+  if (!isSuperUser(req.user)) {
     reply.code(403);
     return {
       ok: false,
@@ -5574,6 +6818,138 @@ app.patch("/api/v1/admin/customers/:customerId/subscription", { preHandler: chec
     return {
       ok: true,
       customer
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.get("/api/v1/admin/users", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  return {
+    ok: true,
+    users: await listAdminUsers()
+  };
+});
+
+app.post("/api/v1/admin/users", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      ...(await createAdminUser(req.body || {}))
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.patch("/api/v1/admin/users/:userId", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      ...(await updateAdminUser(String(req.params.userId || "").trim(), req.body || {}, req.user))
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.get("/api/v1/admin/devices", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  return {
+    ok: true,
+    devices: await listAdminDevices()
+  };
+});
+
+app.post("/api/v1/admin/devices", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    const device = await assignDeviceToCustomer(
+      String(req.body?.device_id || "").trim(),
+      String(req.body?.customer_id || "").trim()
+    );
+
+    return {
+      ok: true,
+      device
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.patch("/api/v1/admin/devices/:deviceId", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    const device = await assignDeviceToCustomer(
+      String(req.params.deviceId || "").trim(),
+      String(req.body?.customer_id || "").trim()
+    );
+
+    return {
+      ok: true,
+      device
     };
   } catch (error) {
     reply.code(error.statusCode || 500);
@@ -5649,7 +7025,7 @@ app.patch("/api/v1/devices/:deviceId/contact", { preHandler: checkAuth }, async 
     };
   }
 
-  if (isAdminUser(req.user)) {
+  if (isSuperUser(req.user)) {
     await ensureDeviceRegistered(deviceId);
   }
 
@@ -5684,7 +7060,7 @@ app.patch("/api/v1/devices/:deviceId/settings", { preHandler: checkAuth }, async
     };
   }
 
-  if (isAdminUser(req.user)) {
+  if (isSuperUser(req.user)) {
     await ensureDeviceRegistered(deviceId);
   }
 
@@ -5721,7 +7097,7 @@ app.get("/api/v1/alarms", { preHandler: checkAuth }, async (req) => {
 });
 
 app.post("/api/v1/mqtt/publish", { preHandler: checkAuth }, async (req, reply) => {
-  if (!isAdminUser(req.user)) {
+  if (!isSuperUser(req.user)) {
     reply.code(403);
     return {
       ok: false,
