@@ -19,6 +19,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || "";
 const DEFAULT_CUSTOMER_ID = process.env.DEFAULT_CUSTOMER_ID || "customer-1";
 const DEFAULT_CUSTOMER_NAME = process.env.DEFAULT_CUSTOMER_NAME || "Customer 1";
+const PUBLIC_APP_URL = (process.env.PUBLIC_APP_URL || "").replace(/\/+$/, "");
 const ALERT_EMAIL_ENABLED = String(process.env.ALERT_EMAIL_ENABLED || "false").toLowerCase() === "true";
 const ALERT_EMAIL_BATCH_MS = Math.max(0, Number(process.env.ALERT_EMAIL_BATCH_MS || 120000));
 const SMTP_HOST = process.env.SMTP_HOST || "";
@@ -28,6 +29,7 @@ const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const PASSWORD_RESET_MAX_AGE_MS = 30 * 60 * 1000;
 const ALLOWED_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace"]);
 const VALID_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace", "past_due", "suspended", "canceled"]);
 const VALID_SUBSCRIPTION_PLANS = new Set(["monthly", "yearly", "trial", "manual"]);
@@ -147,6 +149,11 @@ const dashboardHtml = String.raw`<!doctype html>
       padding: 0 12px;
       font: inherit;
       cursor: pointer;
+    }
+
+    .secondary-button {
+      background: #fff;
+      color: #1f6feb;
     }
 
     .row-input {
@@ -436,6 +443,7 @@ const dashboardHtml = String.raw`<!doctype html>
       <input id="emailInput" class="auth-input" type="email" autocomplete="username" placeholder="Netfang">
       <input id="passwordInput" class="auth-input" type="password" autocomplete="current-password" placeholder="Lykilor&eth;">
       <button id="loginButton">Innskr&aacute;</button>
+      <button id="forgotPasswordButton" class="secondary-button" type="button">Gleymt lykilor&eth;?</button>
       <button id="logoutButton" hidden>&Uacute;tskr&aacute;</button>
       <button id="refresh">Endursetja</button>
     </div>
@@ -456,6 +464,14 @@ const dashboardHtml = String.raw`<!doctype html>
       <input id="confirmPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="Sta&eth;festa n&yacute;tt lykilor&eth;">
       <button id="changePasswordButton">Breyta lykilor&eth;i</button>
       <span id="passwordChangeStatus"></span>
+    </section>
+
+    <section id="passwordResetSection" class="password-panel" hidden>
+      <strong id="passwordResetTitle">Endursetja lykilor&eth;</strong>
+      <input id="resetPasswordInput" class="auth-input" type="password" autocomplete="new-password" placeholder="N&yacute;tt lykilor&eth;">
+      <input id="resetPasswordConfirmInput" class="auth-input" type="password" autocomplete="new-password" placeholder="Sta&eth;festa n&yacute;tt lykilor&eth;">
+      <button id="resetPasswordButton">Endursetja lykilor&eth;</button>
+      <span id="passwordResetStatus"></span>
     </section>
 
     <section id="deviceSection">
@@ -542,6 +558,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
     const loginButton = document.getElementById("loginButton");
+    const forgotPasswordButton = document.getElementById("forgotPasswordButton");
     const logoutButton = document.getElementById("logoutButton");
     const languageToggle = document.getElementById("languageToggle");
     const refresh = document.getElementById("refresh");
@@ -560,6 +577,12 @@ const dashboardHtml = String.raw`<!doctype html>
     const confirmPasswordInput = document.getElementById("confirmPasswordInput");
     const changePasswordButton = document.getElementById("changePasswordButton");
     const passwordChangeStatus = document.getElementById("passwordChangeStatus");
+    const passwordResetSection = document.getElementById("passwordResetSection");
+    const passwordResetTitle = document.getElementById("passwordResetTitle");
+    const resetPasswordInput = document.getElementById("resetPasswordInput");
+    const resetPasswordConfirmInput = document.getElementById("resetPasswordConfirmInput");
+    const resetPasswordButton = document.getElementById("resetPasswordButton");
+    const passwordResetStatus = document.getElementById("passwordResetStatus");
     const deviceCount = document.getElementById("deviceCount");
     const lastUpdate = document.getElementById("lastUpdate");
     const deviceRows = document.getElementById("deviceRows");
@@ -592,9 +615,11 @@ const dashboardHtml = String.raw`<!doctype html>
     let ws = null;
     const pendingContactEdits = new Map();
     const pendingSettingEdits = new Map();
-    const isAlarmPage = location.pathname.startsWith("/alarms");
-    const isSettingsPage = location.pathname.startsWith("/settings");
-    const isDevicePage = !isAlarmPage && !isSettingsPage;
+    const isPasswordResetPage = location.pathname.startsWith("/reset-password");
+    const isAlarmPage = !isPasswordResetPage && location.pathname.startsWith("/alarms");
+    const isSettingsPage = !isPasswordResetPage && location.pathname.startsWith("/settings");
+    const isDevicePage = !isAlarmPage && !isSettingsPage && !isPasswordResetPage;
+    const resetToken = new URLSearchParams(location.search).get("token") || "";
     const sortState = { key: "device_id", type: "text", direction: "asc" };
     const alarmSortState = { key: "created_at", type: "time", direction: "desc" };
     let latestDevices = [];
@@ -608,6 +633,7 @@ const dashboardHtml = String.raw`<!doctype html>
     deviceSection.hidden = !isDevicePage;
     alarmSection.hidden = !isAlarmPage;
     settingsSection.hidden = !isSettingsPage;
+    passwordResetSection.hidden = !isPasswordResetPage;
     devicesLink.classList.toggle("active", isDevicePage);
     alarmsLink.classList.toggle("active", isAlarmPage);
     settingsLink.classList.toggle("active", isSettingsPage);
@@ -625,6 +651,7 @@ const dashboardHtml = String.raw`<!doctype html>
         emailPlaceholder: "Netfang",
         passwordPlaceholder: "Lykilorð",
         login: "Innskrá",
+        forgotPassword: "Gleymt lykilorð?",
         logout: "Útskrá",
         refresh: "Endursetja",
         apiLabel: "API:",
@@ -638,6 +665,11 @@ const dashboardHtml = String.raw`<!doctype html>
         newPassword: "Nýtt lykilorð",
         confirmPassword: "Staðfesta nýtt lykilorð",
         changePassword: "Breyta lykilorði",
+        resetPassword: "Endursetja lykilorð",
+        resetEmailSent: "Ef netfangið er til færðu endursetningarhlekk í tölvupósti.",
+        resetPasswordDone: "Lykilorði hefur verið breytt. Þú getur nú skráð þig inn.",
+        missingEmail: "Settu inn netfang fyrst",
+        missingResetToken: "Endursetningarhlekk vantar eða er rangur",
         filter: "Sía",
         clear: "Hreinsa",
         deviceFilterPlaceholder: "Leita að tæki, heimilisfangi, síma, stöðu, afli, viðvörun...",
@@ -694,6 +726,7 @@ const dashboardHtml = String.raw`<!doctype html>
         emailPlaceholder: "Email",
         passwordPlaceholder: "Password",
         login: "Login",
+        forgotPassword: "Forgot password?",
         logout: "Logout",
         refresh: "Refresh",
         apiLabel: "API:",
@@ -707,6 +740,11 @@ const dashboardHtml = String.raw`<!doctype html>
         newPassword: "New password",
         confirmPassword: "Confirm new password",
         changePassword: "Change password",
+        resetPassword: "Reset password",
+        resetEmailSent: "If the email exists, a reset link has been sent.",
+        resetPasswordDone: "Password has been changed. You can now log in.",
+        missingEmail: "Enter the email address first",
+        missingResetToken: "Reset link is missing or invalid",
         filter: "Filter",
         clear: "Clear",
         deviceFilterPlaceholder: "Search device ID, address, phone, status, power, alarm...",
@@ -808,6 +846,7 @@ const dashboardHtml = String.raw`<!doctype html>
       emailInput.placeholder = t("emailPlaceholder");
       passwordInput.placeholder = t("passwordPlaceholder");
       loginButton.textContent = t("login");
+      forgotPasswordButton.textContent = t("forgotPassword");
       logoutButton.textContent = t("logout");
       refresh.textContent = t("refresh");
       apiLabel.textContent = t("apiLabel");
@@ -819,6 +858,10 @@ const dashboardHtml = String.raw`<!doctype html>
       newPasswordInput.placeholder = t("newPassword");
       confirmPasswordInput.placeholder = t("confirmPassword");
       changePasswordButton.textContent = t("changePassword");
+      passwordResetTitle.textContent = t("resetPassword");
+      resetPasswordInput.placeholder = t("newPassword");
+      resetPasswordConfirmInput.placeholder = t("confirmPassword");
+      resetPasswordButton.textContent = t("resetPassword");
       deviceFilterLabel.textContent = t("filter");
       deviceFilter.placeholder = t("deviceFilterPlaceholder");
       clearDeviceFilter.textContent = t("clear");
@@ -1490,12 +1533,15 @@ const dashboardHtml = String.raw`<!doctype html>
       currentUser = user;
       const loggedIn = Boolean(user);
 
-      emailInput.hidden = loggedIn;
-      passwordInput.hidden = loggedIn;
-      loginButton.hidden = loggedIn;
+      emailInput.hidden = loggedIn || isPasswordResetPage;
+      passwordInput.hidden = loggedIn || isPasswordResetPage;
+      loginButton.hidden = loggedIn || isPasswordResetPage;
+      forgotPasswordButton.hidden = loggedIn || isPasswordResetPage;
       logoutButton.hidden = !loggedIn;
+      refresh.hidden = isPasswordResetPage;
       userInfo.textContent = loggedIn ? user.email + " (" + user.role + ")" : "";
       passwordChangeSection.hidden = !loggedIn || !user.must_change_password;
+      passwordResetSection.hidden = !isPasswordResetPage;
 
       if (!loggedIn) {
         apiStatus.textContent = t("notLoggedIn");
@@ -1506,6 +1552,32 @@ const dashboardHtml = String.raw`<!doctype html>
         renderAlarms([]);
         notificationEmailsInput.value = "";
         notificationEmailsStatus.textContent = "";
+      }
+    }
+
+    async function requestPasswordReset() {
+      const email = emailInput.value.trim();
+
+      if (!email) {
+        apiStatus.textContent = t("missingEmail");
+        return;
+      }
+
+      forgotPasswordButton.disabled = true;
+      apiStatus.textContent = t("loading");
+
+      try {
+        await fetch("/api/v1/password-reset/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+
+        apiStatus.textContent = t("resetEmailSent");
+      } catch (error) {
+        apiStatus.textContent = error.message;
+      } finally {
+        forgotPasswordButton.disabled = false;
       }
     }
 
@@ -1588,6 +1660,45 @@ const dashboardHtml = String.raw`<!doctype html>
       }, 1500);
     }
 
+    async function confirmPasswordReset() {
+      if (!resetToken) {
+        throw new Error(t("missingResetToken"));
+      }
+
+      if (resetPasswordInput.value !== resetPasswordConfirmInput.value) {
+        throw new Error(t("passwordMismatch"));
+      }
+
+      passwordResetStatus.textContent = t("saving");
+      resetPasswordButton.disabled = true;
+
+      try {
+        const response = await fetch("/api/v1/password-reset/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: resetToken,
+            new_password: resetPasswordInput.value,
+            new_password_confirm: resetPasswordConfirmInput.value
+          })
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || ("HTTP " + response.status));
+        }
+
+        resetPasswordInput.value = "";
+        resetPasswordConfirmInput.value = "";
+        passwordResetStatus.textContent = t("resetPasswordDone");
+        setTimeout(() => {
+          location.href = "/dashboard";
+        }, 1800);
+      } finally {
+        resetPasswordButton.disabled = false;
+      }
+    }
+
     function connectWs() {
       if (ws) ws.close();
 
@@ -1630,6 +1741,10 @@ const dashboardHtml = String.raw`<!doctype html>
       });
     });
 
+    forgotPasswordButton.addEventListener("click", () => {
+      requestPasswordReset();
+    });
+
     passwordInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         loginButton.click();
@@ -1644,6 +1759,19 @@ const dashboardHtml = String.raw`<!doctype html>
       changePassword().catch((error) => {
         passwordChangeStatus.textContent = error.message;
       });
+    });
+
+    resetPasswordButton.addEventListener("click", () => {
+      confirmPasswordReset().catch((error) => {
+        passwordResetStatus.textContent = error.message;
+        resetPasswordButton.disabled = false;
+      });
+    });
+
+    resetPasswordConfirmInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        resetPasswordButton.click();
+      }
     });
 
     languageToggle.addEventListener("click", () => {
@@ -1719,7 +1847,13 @@ const dashboardHtml = String.raw`<!doctype html>
     });
 
     applyLanguage();
-    loadMe();
+
+    if (isPasswordResetPage) {
+      setCurrentUser(null);
+      passwordResetStatus.textContent = resetToken ? "" : t("missingResetToken");
+    } else {
+      loadMe();
+    }
   </script>
 </body>
 </html>`;
@@ -1750,6 +1884,23 @@ function verifyPassword(password, storedHash) {
   const actual = crypto.scryptSync(String(password), salt, expected.length);
 
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function hashResetToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function publicBaseUrl(req) {
+  if (PUBLIC_APP_URL) {
+    return PUBLIC_APP_URL;
+  }
+
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const proto = forwardedProto || (req.protocol || "https");
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  const host = forwardedHost || req.headers.host || "snjallhus.triotech.is";
+
+  return `${proto}://${host}`.replace(/\/+$/, "");
 }
 
 function publicUser(user) {
@@ -2209,6 +2360,17 @@ async function initDatabase() {
   `);
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  await db.query(`
     CREATE TABLE IF NOT EXISTS devices (
       device_id TEXT PRIMARY KEY,
       customer_id TEXT REFERENCES customers(id),
@@ -2280,6 +2442,11 @@ async function initDatabase() {
   await db.query(`
     CREATE INDEX IF NOT EXISTS app_users_customer_idx
     ON app_users (customer_id)
+  `);
+
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx
+    ON password_reset_tokens (user_id, expires_at DESC)
   `);
 
   await db.query(`
@@ -2661,15 +2828,18 @@ async function saveNotificationEmails(customerId, emails) {
   return getNotificationEmails(customerId);
 }
 
-function alertEmailIsConfigured() {
+function smtpIsConfigured() {
   return Boolean(
-    ALERT_EMAIL_ENABLED &&
     SMTP_HOST &&
     SMTP_PORT &&
     SMTP_USER &&
     SMTP_PASS &&
     SMTP_FROM
   );
+}
+
+function alertEmailIsConfigured() {
+  return ALERT_EMAIL_ENABLED && smtpIsConfigured();
 }
 
 function getMailTransporter() {
@@ -2844,6 +3014,34 @@ function queueAlarmEmail(customerId, deviceId, alarmType, alarmValue, topic) {
     { customerId, deviceId, alarmType, queued: batch.alarms.length, batchMs: ALERT_EMAIL_BATCH_MS },
     "Alarm email queued"
   );
+}
+
+async function sendPasswordResetEmail(email, resetUrl) {
+  if (!smtpIsConfigured()) {
+    throw new Error("SMTP is not configured");
+  }
+
+  await getMailTransporter().sendMail({
+    from: SMTP_FROM,
+    to: email,
+    subject: "Snjallhus password reset",
+    text: [
+      "Password reset was requested for your Snjallhus account.",
+      "",
+      "Open this link to choose a new password:",
+      resetUrl,
+      "",
+      "This link is valid for 30 minutes. If you did not request this, you can ignore this email."
+    ].join("\n"),
+    html: `
+      <h2>Snjallhus password reset</h2>
+      <p>Password reset was requested for your Snjallhus account.</p>
+      <p><a href="${escapeHtml(resetUrl)}">Choose a new password</a></p>
+      <p>This link is valid for 30 minutes. If you did not request this, you can ignore this email.</p>
+    `
+  });
+
+  app.log.info({ email }, "Password reset email sent");
 }
 
 function topicDeviceId(topic) {
@@ -3466,6 +3664,199 @@ app.get("/alarms", async (req, reply) => {
 
 app.get("/settings", async (req, reply) => {
   return reply.type("text/html").send(dashboardHtml);
+});
+
+app.get("/reset-password", async (req, reply) => {
+  return reply.type("text/html").send(dashboardHtml);
+});
+
+app.post("/api/v1/password-reset/request", async (req, reply) => {
+  const genericResponse = {
+    ok: true,
+    message: "If the email exists, a reset link has been sent."
+  };
+
+  if (!db) {
+    return genericResponse;
+  }
+
+  const email = normalizeEmail(req.body?.email);
+
+  if (!email) {
+    return genericResponse;
+  }
+
+  try {
+    const result = await db.query(
+      `
+        SELECT
+          u.id,
+          u.customer_id,
+          u.email,
+          u.role,
+          u.must_change_password,
+          u.active,
+          c.subscription_status,
+          c.subscription_plan,
+          c.paid_until,
+          c.login_enabled
+        FROM app_users u
+        LEFT JOIN customers c ON c.id = u.customer_id
+        WHERE lower(u.email) = lower($1)
+        LIMIT 1
+      `,
+      [email]
+    );
+
+    const row = result.rows[0];
+
+    if (row && row.active && userCanUseDashboard(userFromRow(row))) {
+      const token = crypto.randomBytes(32).toString("base64url");
+      const tokenHash = hashResetToken(token);
+      const expiresAt = new Date(Date.now() + PASSWORD_RESET_MAX_AGE_MS).toISOString();
+      const resetUrl = `${publicBaseUrl(req)}/reset-password?token=${encodeURIComponent(token)}`;
+
+      await db.query(
+        `
+          UPDATE password_reset_tokens
+          SET used_at = now()
+          WHERE user_id = $1
+            AND used_at IS NULL
+        `,
+        [row.id]
+      );
+
+      await db.query(
+        `
+          INSERT INTO password_reset_tokens (
+            id,
+            user_id,
+            token_hash,
+            expires_at
+          )
+          VALUES ($1, $2, $3, $4)
+        `,
+        [crypto.randomUUID(), row.id, tokenHash, expiresAt]
+      );
+
+      sendPasswordResetEmail(row.email, resetUrl).catch((error) => {
+        app.log.error({ error, email: row.email }, "Failed to send password reset email");
+      });
+    }
+  } catch (error) {
+    app.log.error({ error, email }, "Failed to create password reset token");
+  }
+
+  return genericResponse;
+});
+
+app.post("/api/v1/password-reset/confirm", async (req, reply) => {
+  if (!db) {
+    reply.code(503);
+    return {
+      ok: false,
+      error: "Database login is not configured"
+    };
+  }
+
+  const token = String(req.body?.token || "");
+  const newPassword = String(req.body?.new_password || "");
+  const newPasswordConfirm = String(req.body?.new_password_confirm || "");
+
+  if (!token) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "Reset token is required"
+    };
+  }
+
+  if (newPassword.length < 10) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "New password must be at least 10 characters"
+    };
+  }
+
+  if (newPassword !== newPasswordConfirm) {
+    reply.code(400);
+    return {
+      ok: false,
+      error: "New passwords do not match"
+    };
+  }
+
+  const tokenHash = hashResetToken(token);
+  const client = await db.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await client.query(
+      `
+        SELECT
+          t.id AS token_id,
+          u.id AS user_id
+        FROM password_reset_tokens t
+        JOIN app_users u ON u.id = t.user_id
+        WHERE t.token_hash = $1
+          AND t.used_at IS NULL
+          AND t.expires_at > now()
+          AND u.active = true
+        LIMIT 1
+      `,
+      [tokenHash]
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+      await client.query("ROLLBACK");
+      reply.code(400);
+      return {
+        ok: false,
+        error: "Reset link is invalid or expired"
+      };
+    }
+
+    await client.query(
+      `
+        UPDATE app_users
+        SET password_hash = $2,
+            must_change_password = false,
+            updated_at = now()
+        WHERE id = $1
+      `,
+      [row.user_id, hashPassword(newPassword)]
+    );
+
+    await client.query(
+      `
+        UPDATE password_reset_tokens
+        SET used_at = now()
+        WHERE user_id = $1
+          AND used_at IS NULL
+      `,
+      [row.user_id]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      ok: true
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    app.log.error({ error }, "Failed to confirm password reset");
+    reply.code(500);
+    return {
+      ok: false,
+      error: "Failed to reset password"
+    };
+  } finally {
+    client.release();
+  }
 });
 
 app.post("/api/v1/login", async (req, reply) => {
