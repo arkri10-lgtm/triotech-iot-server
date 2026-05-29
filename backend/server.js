@@ -42,8 +42,8 @@ const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const LOGO_FILE = new URL("./public/LOGO_Triotech.png", import.meta.url);
 const PASSWORD_RESET_MAX_AGE_MS = 30 * 60 * 1000;
-const ALLOWED_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace"]);
-const VALID_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace", "past_due", "suspended", "canceled"]);
+const ALLOWED_SUBSCRIPTION_STATUSES = new Set(["active"]);
+const VALID_SUBSCRIPTION_STATUSES = new Set(["active", "deactive", "suspended", "canceled"]);
 const VALID_SUBSCRIPTION_PLANS = new Set(["monthly", "yearly", "trial", "manual"]);
 
 const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
@@ -200,6 +200,11 @@ const dashboardHtml = String.raw`<!doctype html>
       padding: 0 12px;
       font: inherit;
       cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
     }
 
     .secondary-button {
@@ -1253,10 +1258,15 @@ const dashboardHtml = String.raw`<!doctype html>
         no: "nei",
         accessOn: "virkur",
         accessOff: "loka\u00f0",
+        statusActive: "Active",
+        statusDeactive: "Deactive",
+        statusSuspended: "Suspended",
+        statusCanceled: "Canceled",
         noCustomers: "Engir vi\u00f0skiptavinir.",
         noUsers: "Engir notendur.",
         noAdminDevices: "Engin t\u00e6ki.",
-        confirmDeleteCustomer: "Ey\u00f0a vi\u00f0skiptavini? A\u00f0eins t\u00f3mir vi\u00f0skiptavinir eru eyddir.",
+        confirmDeleteCustomer: "Ertu alveg viss um a\u00f0 \u00fe\u00fa viljir ey\u00f0a \u00feessum vi\u00f0skiptavini? \u00dea\u00f0 er bara leyft ef engir notendur og engin t\u00e6ki eru skr\u00e1\u00f0.",
+        cannotDeleteCustomer: "Ekki h\u00e6gt a\u00f0 ey\u00f0a: notendur, t\u00e6ki e\u00f0a netf\u00f6ng eru skr\u00e1\u00f0.",
         confirmDeleteDevice: "Fjarl\u00e6gja t\u00e6ki \u00far virkri t\u00e6kjaskr\u00e1?",
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Nafn",
@@ -1386,10 +1396,15 @@ const dashboardHtml = String.raw`<!doctype html>
         no: "no",
         accessOn: "enabled",
         accessOff: "blocked",
+        statusActive: "Active",
+        statusDeactive: "Deactive",
+        statusSuspended: "Suspended",
+        statusCanceled: "Canceled",
         noCustomers: "No customers.",
         noUsers: "No users.",
         noAdminDevices: "No devices.",
-        confirmDeleteCustomer: "Delete customer? Only empty customers can be deleted.",
+        confirmDeleteCustomer: "Are you sure you want to delete this customer? This is only allowed when no users and no devices are registered.",
+        cannotDeleteCustomer: "Cannot delete: users, devices, or email recipients are registered.",
         confirmDeleteDevice: "Remove device from the active device registry?",
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Name",
@@ -1939,8 +1954,12 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     function subscriptionStatusOptions() {
-      return ["active", "trialing", "grace", "past_due", "suspended", "canceled"]
-        .map((value) => ({ value, label: value }));
+      return [
+        { value: "active", label: t("statusActive") },
+        { value: "deactive", label: t("statusDeactive") },
+        { value: "suspended", label: t("statusSuspended") },
+        { value: "canceled", label: t("statusCanceled") }
+      ];
     }
 
     function subscriptionPlanOptions() {
@@ -2102,6 +2121,11 @@ const dashboardHtml = String.raw`<!doctype html>
         deleteButton.type = "button";
         deleteButton.textContent = t("deleteText");
         deleteButton.className = "danger-button";
+        const deleteBlocked = Number(customer.device_count || 0) > 0 ||
+          Number(customer.user_count || 0) > 0 ||
+          Number(customer.email_recipient_count || 0) > 0;
+        deleteButton.disabled = deleteBlocked;
+        deleteButton.title = deleteBlocked ? t("cannotDeleteCustomer") : t("confirmDeleteCustomer");
 
         saveButton.addEventListener("click", async () => {
           adminCustomersStatus.textContent = t("saving");
@@ -4407,6 +4431,8 @@ async function initDatabase() {
   await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS subscription_plan TEXT NOT NULL DEFAULT 'monthly'");
   await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS paid_until TIMESTAMPTZ");
   await db.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS login_enabled BOOLEAN NOT NULL DEFAULT true");
+  await db.query("UPDATE customers SET subscription_status = 'active' WHERE subscription_status IN ('trialing', 'grace')");
+  await db.query("UPDATE customers SET subscription_status = 'deactive' WHERE subscription_status = 'past_due'");
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS app_users (
@@ -4689,6 +4715,9 @@ function customerFromRow(row) {
     subscription_plan: row.subscription_plan,
     paid_until: row.paid_until ? new Date(row.paid_until).toISOString() : null,
     login_enabled: row.login_enabled !== false,
+    device_count: Number(row.device_count || 0),
+    user_count: Number(row.user_count || 0),
+    email_recipient_count: Number(row.email_recipient_count || 0),
     updated_at: row.updated_at
   };
 }
@@ -4706,7 +4735,23 @@ async function listCustomers() {
       subscription_plan,
       paid_until,
       login_enabled,
-      updated_at
+      updated_at,
+      (
+        SELECT count(*)::int
+        FROM devices
+        WHERE devices.customer_id = customers.id
+          AND devices.active = true
+      ) AS device_count,
+      (
+        SELECT count(*)::int
+        FROM app_users
+        WHERE app_users.customer_id = customers.id
+      ) AS user_count,
+      (
+        SELECT count(*)::int
+        FROM customer_alarm_email_recipients
+        WHERE customer_alarm_email_recipients.customer_id = customers.id
+      ) AS email_recipient_count
     FROM customers
     ORDER BY name, id
   `);
@@ -4877,6 +4922,9 @@ async function createCustomer(values) {
         subscription_plan,
         paid_until,
         login_enabled,
+        0 AS device_count,
+        0 AS user_count,
+        0 AS email_recipient_count,
         updated_at
     `,
     [
@@ -4937,6 +4985,9 @@ async function saveCustomerDetails(customerId, values) {
         subscription_plan,
         paid_until,
         login_enabled,
+        0 AS device_count,
+        0 AS user_count,
+        0 AS email_recipient_count,
         updated_at
     `,
     [
@@ -4960,7 +5011,7 @@ async function deleteCustomer(customerId) {
   const usage = await db.query(
     `
       SELECT
-        (SELECT count(*)::int FROM devices WHERE customer_id = $1) AS devices,
+        (SELECT count(*)::int FROM devices WHERE customer_id = $1 AND active = true) AS devices,
         (SELECT count(*)::int FROM app_users WHERE customer_id = $1) AS users,
         (SELECT count(*)::int FROM customer_alarm_email_recipients WHERE customer_id = $1) AS email_recipients
     `,
@@ -4971,6 +5022,11 @@ async function deleteCustomer(customerId) {
   if (counts.devices || counts.users || counts.email_recipients) {
     throw requestError("Customer still has devices, users, or alarm email recipients", 409);
   }
+
+  await db.query(
+    "UPDATE devices SET customer_id = NULL, updated_at = now() WHERE customer_id = $1 AND active = false",
+    [customerId]
+  );
 
   const result = await db.query("DELETE FROM customers WHERE id = $1", [customerId]);
 
