@@ -914,10 +914,11 @@ const dashboardHtml = String.raw`<!doctype html>
                   <th id="adminUserMustChangeHeader">N&yacute;tt lykilor&eth;</th>
                   <th id="adminUserSaveHeader">Vista</th>
                   <th id="adminUserResetHeader">Endursetja</th>
+                  <th id="adminUserWelcomeHeader">Senda</th>
                 </tr>
               </thead>
               <tbody id="adminUserRows">
-                <tr><td colspan="7" class="empty">Engir notendur.</td></tr>
+                <tr><td colspan="8" class="empty">Engir notendur.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1042,6 +1043,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const adminUserMustChangeHeader = document.getElementById("adminUserMustChangeHeader");
     const adminUserSaveHeader = document.getElementById("adminUserSaveHeader");
     const adminUserResetHeader = document.getElementById("adminUserResetHeader");
+    const adminUserWelcomeHeader = document.getElementById("adminUserWelcomeHeader");
     const adminDevicesTitle = document.getElementById("adminDevicesTitle");
     const adminDeviceIdInput = document.getElementById("adminDeviceIdInput");
     const adminDeviceCustomerSelect = document.getElementById("adminDeviceCustomerSelect");
@@ -1242,6 +1244,8 @@ const dashboardHtml = String.raw`<!doctype html>
         activeUser: "Virkur",
         mustChangePassword: "Skiptir um lykilor\u00f0",
         resetUserPassword: "N\u00fdtt lykilor\u00f0",
+        sendWelcome: "Senda",
+        welcomeSent: "Velkomup\u00f3stur sendur",
         removeDevice: "Fjarl\u00e6gja",
         tempPassword: "T\u00edmabundi\u00f0 lykilor\u00f0",
         updated: "Uppf\u00e6rt",
@@ -1373,6 +1377,8 @@ const dashboardHtml = String.raw`<!doctype html>
         activeUser: "Active",
         mustChangePassword: "Must change password",
         resetUserPassword: "New password",
+        sendWelcome: "Send",
+        welcomeSent: "Welcome email sent",
         removeDevice: "Remove",
         tempPassword: "Temporary password",
         updated: "Updated",
@@ -1496,6 +1502,7 @@ const dashboardHtml = String.raw`<!doctype html>
       adminUserMustChangeHeader.textContent = t("mustChangePassword");
       adminUserSaveHeader.textContent = t("save");
       adminUserResetHeader.textContent = t("resetUserPassword");
+      adminUserWelcomeHeader.textContent = t("sendWelcome");
       adminDeviceIdInput.placeholder = t("deviceIdPlaceholder");
       assignDeviceButton.textContent = t("assignDevice");
       setSortLabel("#adminDevicesPanel", "device_id", t("columnDeviceId"));
@@ -2067,7 +2074,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function clearAdminTables() {
       adminCustomerRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noCustomers") + '</td></tr>';
-      adminUserRows.innerHTML = '<tr><td colspan="7" class="empty">' + t("noUsers") + '</td></tr>';
+      adminUserRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noUsers") + '</td></tr>';
       adminDeviceRows.innerHTML = '<tr><td colspan="5" class="empty">' + t("noAdminDevices") + '</td></tr>';
     }
 
@@ -2145,7 +2152,7 @@ const dashboardHtml = String.raw`<!doctype html>
       adminUserRows.textContent = "";
 
       if (!adminUsers.length) {
-        adminUserRows.innerHTML = '<tr><td colspan="7" class="empty">' + t("noUsers") + '</td></tr>';
+        adminUserRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noUsers") + '</td></tr>';
         return;
       }
 
@@ -2157,11 +2164,14 @@ const dashboardHtml = String.raw`<!doctype html>
         const mustChangeSelect = adminSelect(boolOptions(), String(user.must_change_password));
         const saveButton = document.createElement("button");
         const resetButton = document.createElement("button");
+        const welcomeButton = document.createElement("button");
 
         saveButton.type = "button";
         saveButton.textContent = t("save");
         resetButton.type = "button";
         resetButton.textContent = t("resetUserPassword");
+        welcomeButton.type = "button";
+        welcomeButton.textContent = t("sendWelcome");
 
         saveButton.addEventListener("click", async () => {
           adminUsersStatus.textContent = t("saving");
@@ -2196,6 +2206,21 @@ const dashboardHtml = String.raw`<!doctype html>
           }
         });
 
+        welcomeButton.addEventListener("click", async () => {
+          adminUsersStatus.textContent = t("saving");
+          welcomeButton.disabled = true;
+
+          try {
+            await postJson("/api/v1/admin/users/" + encodeURIComponent(user.id) + "/welcome", {});
+            adminUsersStatus.textContent = t("welcomeSent") + ": " + user.email;
+            await loadSuperAdminWorkspace();
+          } catch (error) {
+            adminUsersStatus.textContent = error.message;
+          } finally {
+            welcomeButton.disabled = false;
+          }
+        });
+
         cell(row, user.email);
         cell(row, customerSelect);
         cell(row, roleSelect);
@@ -2203,6 +2228,7 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, mustChangeSelect);
         cell(row, saveButton);
         cell(row, resetButton);
+        cell(row, welcomeButton);
         adminUserRows.appendChild(row);
       }
     }
@@ -5141,6 +5167,82 @@ async function updateAdminUser(userId, values, currentUser) {
   };
 }
 
+async function sendWelcomeToAdminUser(userId, loginUrl) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  if (!smtpIsConfigured()) {
+    throw requestError("SMTP is not configured", 503);
+  }
+
+  const client = await db.connect();
+  const tempPassword = generateTempPassword();
+
+  try {
+    await client.query("BEGIN");
+
+    const current = await client.query(
+      `
+        SELECT id, email, active
+        FROM app_users
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [userId]
+    );
+
+    if (current.rowCount === 0) {
+      throw requestError("User not found", 404);
+    }
+
+    if (!current.rows[0].active) {
+      throw requestError("User is inactive", 409);
+    }
+
+    await client.query(
+      `
+        UPDATE app_users
+        SET password_hash = $2,
+            must_change_password = true,
+            updated_at = now()
+        WHERE id = $1
+      `,
+      [userId, hashPassword(tempPassword)]
+    );
+
+    const updated = await client.query(
+      `
+        SELECT
+          u.id,
+          u.customer_id,
+          c.name AS customer_name,
+          u.email,
+          u.role,
+          u.must_change_password,
+          u.active,
+          u.updated_at
+        FROM app_users u
+        LEFT JOIN customers c ON c.id = u.customer_id
+        WHERE u.id = $1
+      `,
+      [userId]
+    );
+
+    await sendWelcomeEmail(current.rows[0].email, loginUrl, tempPassword);
+    await client.query("COMMIT");
+
+    return {
+      user: adminUserFromRow(updated.rows[0])
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function adminDeviceFromRow(row) {
   return {
     device_id: row.device_id,
@@ -5608,6 +5710,39 @@ async function sendPasswordResetEmail(email, resetUrl) {
   });
 
   app.log.info({ email }, "Password reset email sent");
+}
+
+async function sendWelcomeEmail(email, loginUrl, tempPassword) {
+  if (!smtpIsConfigured()) {
+    throw new Error("SMTP is not configured");
+  }
+
+  await getMailTransporter().sendMail({
+    from: SMTP_FROM,
+    to: email,
+    subject: "Velkomin/n í Snjallhús",
+    text: [
+      "Velkomin/n í Snjallhús kerfið.",
+      "",
+      "Innskráningarslóð:",
+      loginUrl,
+      "",
+      `Netfang: ${email}`,
+      `Tímabundið lykilorð: ${tempPassword}`,
+      "",
+      "Við fyrstu innskráningu verður þú beðin/n um að velja nýtt lykilorð."
+    ].join("\n"),
+    html: `
+      <h2>Velkomin/n í Snjallhús kerfið</h2>
+      <p>Notandaaðgangur hefur verið stofnaður fyrir þig.</p>
+      <p><a href="${escapeHtml(loginUrl)}">Opna Snjallhús</a></p>
+      <p><strong>Netfang:</strong> ${escapeHtml(email)}</p>
+      <p><strong>Tímabundið lykilorð:</strong> ${escapeHtml(tempPassword)}</p>
+      <p>Við fyrstu innskráningu verður þú beðin/n um að velja nýtt lykilorð.</p>
+    `
+  });
+
+  app.log.info({ email }, "Welcome email sent");
 }
 
 function topicDeviceId(topic) {
@@ -7078,6 +7213,33 @@ app.patch("/api/v1/admin/users/:userId", { preHandler: checkAuth }, async (req, 
     return {
       ok: true,
       ...(await updateAdminUser(String(req.params.userId || "").trim(), req.body || {}, req.user))
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.post("/api/v1/admin/users/:userId/welcome", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      sent: true,
+      ...(await sendWelcomeToAdminUser(
+        String(req.params.userId || "").trim(),
+        `${publicBaseUrl(req)}/dashboard`
+      ))
     };
   } catch (error) {
     reply.code(error.statusCode || 500);
