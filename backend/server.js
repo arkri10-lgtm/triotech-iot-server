@@ -453,7 +453,6 @@ const dashboardHtml = String.raw`<!doctype html>
       <button id="loginButton">Innskr&aacute;</button>
       <button id="forgotPasswordButton" class="secondary-button" type="button">Gleymt lykilor&eth;?</button>
       <button id="logoutButton" hidden>&Uacute;tskr&aacute;</button>
-      <button id="refresh">Endursetja</button>
     </div>
   </header>
 
@@ -569,7 +568,6 @@ const dashboardHtml = String.raw`<!doctype html>
     const forgotPasswordButton = document.getElementById("forgotPasswordButton");
     const logoutButton = document.getElementById("logoutButton");
     const languageToggle = document.getElementById("languageToggle");
-    const refresh = document.getElementById("refresh");
     const apiStatus = document.getElementById("apiStatus");
     const wsStatus = document.getElementById("wsStatus");
     const pageTitle = document.getElementById("pageTitle");
@@ -661,7 +659,6 @@ const dashboardHtml = String.raw`<!doctype html>
         login: "Innskrá",
         forgotPassword: "Gleymt lykilorð?",
         logout: "Útskrá",
-        refresh: "Endursetja",
         apiLabel: "API:",
         wsLabel: "WebSocket:",
         devicesLabel: "Tæki:",
@@ -736,7 +733,6 @@ const dashboardHtml = String.raw`<!doctype html>
         login: "Login",
         forgotPassword: "Forgot password?",
         logout: "Logout",
-        refresh: "Refresh",
         apiLabel: "API:",
         wsLabel: "WebSocket:",
         devicesLabel: "Devices:",
@@ -856,7 +852,6 @@ const dashboardHtml = String.raw`<!doctype html>
       loginButton.textContent = t("login");
       forgotPasswordButton.textContent = t("forgotPassword");
       logoutButton.textContent = t("logout");
-      refresh.textContent = t("refresh");
       apiLabel.textContent = t("apiLabel");
       wsLabel.textContent = t("wsLabel");
       deviceCountLabel.textContent = t("devicesLabel");
@@ -1546,7 +1541,6 @@ const dashboardHtml = String.raw`<!doctype html>
       loginButton.hidden = loggedIn || isPasswordResetPage;
       forgotPasswordButton.hidden = loggedIn || isPasswordResetPage;
       logoutButton.hidden = !loggedIn;
-      refresh.hidden = isPasswordResetPage;
       userInfo.textContent = loggedIn ? user.email + " (" + user.role + ")" : "";
       passwordChangeSection.hidden = !loggedIn || !user.must_change_password;
       passwordResetSection.hidden = !isPasswordResetPage;
@@ -1788,11 +1782,6 @@ const dashboardHtml = String.raw`<!doctype html>
       applyLanguage();
       renderDevices(latestDevices);
       renderAlarms(latestAlarms);
-    });
-
-    refresh.addEventListener("click", () => {
-      loadState();
-      loadNotificationSettings();
     });
 
     deviceFilter.addEventListener("input", () => {
