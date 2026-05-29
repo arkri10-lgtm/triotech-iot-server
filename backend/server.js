@@ -920,10 +920,11 @@ const dashboardHtml = String.raw`<!doctype html>
                   <th id="adminUserSaveHeader">Vista</th>
                   <th id="adminUserResetHeader">Endursetja</th>
                   <th id="adminUserWelcomeHeader">Senda</th>
+                  <th id="adminUserDeleteHeader">Ey&eth;a</th>
                 </tr>
               </thead>
               <tbody id="adminUserRows">
-                <tr><td colspan="8" class="empty">Engir notendur.</td></tr>
+                <tr><td colspan="9" class="empty">Engir notendur.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1049,6 +1050,7 @@ const dashboardHtml = String.raw`<!doctype html>
     const adminUserSaveHeader = document.getElementById("adminUserSaveHeader");
     const adminUserResetHeader = document.getElementById("adminUserResetHeader");
     const adminUserWelcomeHeader = document.getElementById("adminUserWelcomeHeader");
+    const adminUserDeleteHeader = document.getElementById("adminUserDeleteHeader");
     const adminDevicesTitle = document.getElementById("adminDevicesTitle");
     const adminDeviceIdInput = document.getElementById("adminDeviceIdInput");
     const adminDeviceCustomerSelect = document.getElementById("adminDeviceCustomerSelect");
@@ -1267,6 +1269,8 @@ const dashboardHtml = String.raw`<!doctype html>
         noAdminDevices: "Engin t\u00e6ki.",
         confirmDeleteCustomer: "Ertu alveg viss um a\u00f0 \u00fe\u00fa viljir ey\u00f0a \u00feessum vi\u00f0skiptavini? \u00dea\u00f0 er bara leyft ef engir notendur og engin t\u00e6ki eru skr\u00e1\u00f0.",
         cannotDeleteCustomer: "Ekki h\u00e6gt a\u00f0 ey\u00f0a: notendur, t\u00e6ki e\u00f0a netf\u00f6ng eru skr\u00e1\u00f0.",
+        confirmDeleteUser: "Ertu alveg viss um a\u00f0 \u00fe\u00fa viljir ey\u00f0a \u00feessum notanda?",
+        cannotDeleteCurrentUser: "Ekki h\u00e6gt a\u00f0 ey\u00f0a eigin notanda.",
         confirmDeleteDevice: "Fjarl\u00e6gja t\u00e6ki \u00far virkri t\u00e6kjaskr\u00e1?",
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Nafn",
@@ -1405,6 +1409,8 @@ const dashboardHtml = String.raw`<!doctype html>
         noAdminDevices: "No devices.",
         confirmDeleteCustomer: "Are you sure you want to delete this customer? This is only allowed when no users and no devices are registered.",
         cannotDeleteCustomer: "Cannot delete: users, devices, or email recipients are registered.",
+        confirmDeleteUser: "Are you sure you want to delete this user?",
+        cannotDeleteCurrentUser: "You cannot delete your own user.",
         confirmDeleteDevice: "Remove device from the active device registry?",
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Name",
@@ -1518,6 +1524,7 @@ const dashboardHtml = String.raw`<!doctype html>
       adminUserSaveHeader.textContent = t("save");
       adminUserResetHeader.textContent = t("resetUserPassword");
       adminUserWelcomeHeader.textContent = t("sendWelcome");
+      adminUserDeleteHeader.textContent = t("deleteText");
       adminDeviceIdInput.placeholder = t("deviceIdPlaceholder");
       assignDeviceButton.textContent = t("assignDevice");
       setSortLabel("#adminDevicesPanel", "device_id", t("columnDeviceId"));
@@ -2176,7 +2183,7 @@ const dashboardHtml = String.raw`<!doctype html>
       adminUserRows.textContent = "";
 
       if (!adminUsers.length) {
-        adminUserRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noUsers") + '</td></tr>';
+        adminUserRows.innerHTML = '<tr><td colspan="9" class="empty">' + t("noUsers") + '</td></tr>';
         return;
       }
 
@@ -2189,6 +2196,8 @@ const dashboardHtml = String.raw`<!doctype html>
         const saveButton = document.createElement("button");
         const resetButton = document.createElement("button");
         const welcomeButton = document.createElement("button");
+        const deleteButton = document.createElement("button");
+        const deleteBlocked = currentUser && currentUser.id === user.id;
 
         saveButton.type = "button";
         saveButton.textContent = t("save");
@@ -2196,6 +2205,11 @@ const dashboardHtml = String.raw`<!doctype html>
         resetButton.textContent = t("resetUserPassword");
         welcomeButton.type = "button";
         welcomeButton.textContent = t("sendWelcome");
+        deleteButton.type = "button";
+        deleteButton.textContent = t("deleteText");
+        deleteButton.className = "danger-button";
+        deleteButton.disabled = deleteBlocked;
+        deleteButton.title = deleteBlocked ? t("cannotDeleteCurrentUser") : t("confirmDeleteUser");
 
         saveButton.addEventListener("click", async () => {
           adminUsersStatus.textContent = t("saving");
@@ -2245,6 +2259,24 @@ const dashboardHtml = String.raw`<!doctype html>
           }
         });
 
+        deleteButton.addEventListener("click", async () => {
+          if (!confirm(t("confirmDeleteUser"))) {
+            return;
+          }
+
+          adminUsersStatus.textContent = t("saving");
+          deleteButton.disabled = true;
+
+          try {
+            await deleteJson("/api/v1/admin/users/" + encodeURIComponent(user.id));
+            adminUsersStatus.textContent = t("settingsSaved");
+            await loadSuperAdminWorkspace();
+          } catch (error) {
+            adminUsersStatus.textContent = error.message;
+            deleteButton.disabled = deleteBlocked;
+          }
+        });
+
         cell(row, user.email);
         cell(row, customerSelect);
         cell(row, roleSelect);
@@ -2253,6 +2285,7 @@ const dashboardHtml = String.raw`<!doctype html>
         cell(row, saveButton);
         cell(row, resetButton);
         cell(row, welcomeButton);
+        cell(row, deleteButton);
         adminUserRows.appendChild(row);
       }
     }
@@ -4049,6 +4082,25 @@ function createDashboardSession(user) {
   return sessionId;
 }
 
+function invalidateDashboardSessionsForUser(userId) {
+  for (const [sessionId, session] of dashboardSessions) {
+    if (session.user && session.user.id === userId) {
+      dashboardSessions.delete(sessionId);
+    }
+  }
+
+  for (const [socket, user] of wsClients) {
+    if (user && user.id === userId) {
+      wsClients.delete(socket);
+      try {
+        socket.close(1008, "User deleted");
+      } catch (error) {
+        app.log.warn({ error }, "Failed to close deleted user websocket");
+      }
+    }
+  }
+}
+
 function getSessionUser(req) {
   const cookies = parseCookies(req.headers.cookie || "");
   const sessionId = cookies.snjallhus_session || "";
@@ -5220,6 +5272,73 @@ async function updateAdminUser(userId, values, currentUser) {
   return {
     user: adminUserFromRow(result.rows[0]),
     temp_password: tempPassword
+  };
+}
+
+async function deleteAdminUser(userId, currentUser) {
+  if (!db) {
+    throw requestError("Database is not configured", 503);
+  }
+
+  if (!userId) {
+    throw requestError("User not found", 404);
+  }
+
+  if (currentUser && currentUser.id === userId) {
+    throw requestError("You cannot delete your own user", 409);
+  }
+
+  const client = await db.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const current = await client.query(
+      `
+        SELECT id, role, active
+        FROM app_users
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [userId]
+    );
+
+    if (current.rowCount === 0) {
+      throw requestError("User not found", 404);
+    }
+
+    const row = current.rows[0];
+
+    if (row.role === "super_admin" && row.active) {
+      const superAdmins = await client.query(
+        `
+          SELECT count(*)::int AS remaining
+          FROM app_users
+          WHERE role = 'super_admin'
+            AND active = true
+            AND id <> $1
+        `,
+        [userId]
+      );
+
+      if ((superAdmins.rows[0]?.remaining || 0) < 1) {
+        throw requestError("You cannot delete the last active super-admin user", 409);
+      }
+    }
+
+    await client.query("DELETE FROM app_users WHERE id = $1", [userId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  invalidateDashboardSessionsForUser(userId);
+
+  return {
+    user_id: userId
   };
 }
 
@@ -7269,6 +7388,29 @@ app.patch("/api/v1/admin/users/:userId", { preHandler: checkAuth }, async (req, 
     return {
       ok: true,
       ...(await updateAdminUser(String(req.params.userId || "").trim(), req.body || {}, req.user))
+    };
+  } catch (error) {
+    reply.code(error.statusCode || 500);
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+});
+
+app.delete("/api/v1/admin/users/:userId", { preHandler: checkAuth }, async (req, reply) => {
+  if (!isSuperUser(req.user)) {
+    reply.code(403);
+    return {
+      ok: false,
+      error: "Forbidden"
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      ...(await deleteAdminUser(String(req.params.userId || "").trim(), req.user))
     };
   } catch (error) {
     reply.code(error.statusCode || 500);
