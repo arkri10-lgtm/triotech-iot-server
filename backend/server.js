@@ -3,6 +3,7 @@ import websocket from "@fastify/websocket";
 import mqtt from "mqtt";
 import nodemailer from "nodemailer";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import pg from "pg";
 
 const app = Fastify({ logger: true });
@@ -38,6 +39,7 @@ const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const LOGO_FILE = new URL("./public/LOGO_Triotech.png", import.meta.url);
 const PASSWORD_RESET_MAX_AGE_MS = 30 * 60 * 1000;
 const ALLOWED_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace"]);
 const VALID_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "grace", "past_due", "suspended", "canceled"]);
@@ -73,16 +75,20 @@ const dashboardHtml = String.raw`<!doctype html>
   <title>Snjalli H&uacute;sv&ouml;r&eth;urinn</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f6f8fb;
-      --panel: #ffffff;
-      --line: #d7dde7;
-      --text: #172033;
-      --muted: #647086;
-      --alarm: #ffe1e1;
-      --alarm-line: #cf3030;
-      --ok: #157347;
-      --warn: #a15c00;
+      color-scheme: dark;
+      --bg: #1e2939;
+      --panel: #243247;
+      --panel-soft: #2b3a51;
+      --input: #182335;
+      --line: #41506a;
+      --text: #eef7ff;
+      --muted: #a9b8cc;
+      --accent: #45e4ee;
+      --accent-dark: #1fb9c7;
+      --alarm: #5a2730;
+      --alarm-line: #ff6b6b;
+      --ok: #42df95;
+      --warn: #ffd166;
     }
 
     * {
@@ -103,8 +109,24 @@ const dashboardHtml = String.raw`<!doctype html>
       justify-content: space-between;
       gap: 16px;
       padding: 18px 22px;
-      background: var(--panel);
+      background: #172235;
       border-bottom: 1px solid var(--line);
+    }
+
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 230px;
+    }
+
+    .brand-logo {
+      width: 54px;
+      height: 54px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--bg);
+      border: 1px solid rgba(255, 255, 255, 0.12);
     }
 
     h1 {
@@ -133,12 +155,12 @@ const dashboardHtml = String.raw`<!doctype html>
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 7px 10px;
-      background: #fff;
+      background: var(--panel-soft);
     }
 
     .nav-links a.active {
-      border-color: #3050c8;
-      color: #1f3fb0;
+      border-color: var(--accent);
+      color: var(--accent);
       font-weight: 700;
     }
 
@@ -149,29 +171,36 @@ const dashboardHtml = String.raw`<!doctype html>
       border-radius: 6px;
       padding: 0 10px;
       font: inherit;
+      background: var(--input);
+      color: var(--text);
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: #8293aa;
     }
 
     button {
       height: 34px;
-      border: 1px solid #1f6feb;
+      border: 1px solid var(--accent-dark);
       border-radius: 6px;
-      background: #1f6feb;
-      color: #fff;
+      background: var(--accent-dark);
+      color: #06131c;
       padding: 0 12px;
       font: inherit;
       cursor: pointer;
     }
 
     .secondary-button {
-      background: #fff;
-      color: #1f6feb;
+      background: transparent;
+      color: var(--accent);
     }
 
     .row-input {
       width: 12ch;
       height: 30px;
       padding: 0 6px;
-      background: #fff;
+      background: var(--input);
     }
 
     .phone-input {
@@ -240,7 +269,8 @@ const dashboardHtml = String.raw`<!doctype html>
       border-radius: 6px;
       padding: 8px 10px;
       font: inherit;
-      background: #fff;
+      background: var(--input);
+      color: var(--text);
     }
 
     select {
@@ -265,8 +295,8 @@ const dashboardHtml = String.raw`<!doctype html>
       flex-wrap: wrap;
       margin-bottom: 14px;
       padding: 10px;
-      background: #fff8df;
-      border: 1px solid #f0ce84;
+      background: #4b3d22;
+      border: 1px solid #9f7e31;
       border-radius: 8px;
     }
 
@@ -298,9 +328,9 @@ const dashboardHtml = String.raw`<!doctype html>
     th {
       position: sticky;
       top: 0;
-      background: #eef2f7;
+      background: #1a2638;
       font-size: 12px;
-      color: #3d4a5f;
+      color: #cfe1f5;
       text-transform: uppercase;
       letter-spacing: 0;
     }
@@ -349,11 +379,11 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     tr.offline {
-      background: #fff8df;
+      background: #4b3d22;
     }
 
     tr.offline td:first-child {
-      border-left: 4px solid #d98c00;
+      border-left: 4px solid var(--warn);
     }
 
     .badge {
@@ -362,24 +392,24 @@ const dashboardHtml = String.raw`<!doctype html>
       min-height: 22px;
       padding: 2px 8px;
       border-radius: 999px;
-      background: #edf2f7;
+      background: #33445d;
       color: var(--text);
       font-size: 12px;
       font-weight: 700;
     }
 
     .badge.ok {
-      background: #ddf4e8;
+      background: #173d31;
       color: var(--ok);
     }
 
     .badge.alarm {
-      background: #ffd6d6;
-      color: #a80000;
+      background: #5a2730;
+      color: #ffd5d5;
     }
 
     .badge.warn {
-      background: #fff1cc;
+      background: #4b3d22;
       color: var(--warn);
     }
 
@@ -444,7 +474,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     .device-link {
-      color: #1f3fb0;
+      color: var(--accent);
       font-weight: 700;
       text-decoration: none;
     }
@@ -506,8 +536,8 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     .range-button.active {
-      background: #123f91;
-      border-color: #123f91;
+      background: var(--accent-dark);
+      border-color: var(--accent-dark);
     }
 
     .chart-wrap {
@@ -542,6 +572,15 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     @media (max-width: 560px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-links {
+        margin-left: 0;
+      }
+
       .detail-grid {
         grid-template-columns: 1fr;
       }
@@ -550,7 +589,10 @@ const dashboardHtml = String.raw`<!doctype html>
 </head>
 <body>
   <header>
-    <h1 id="pageTitle">Snjalli H&uacute;sv&ouml;r&eth;urinn</h1>
+    <div class="brand-lockup">
+      <img class="brand-logo" src="/assets/LOGO_Triotech.png" alt="Triotech">
+      <h1 id="pageTitle">Snjalli H&uacute;sv&ouml;r&eth;urinn</h1>
+    </div>
     <nav class="nav-links" aria-label="Main pages">
       <a id="devicesLink" href="/dashboard">T&aelig;kjaskr&aacute;</a>
       <a id="alarmsLink" href="/alarms">Vi&eth;v&ouml;runarskr&aacute;</a>
@@ -1852,14 +1894,14 @@ const dashboardHtml = String.raw`<!doctype html>
           y1: gridY,
           x2: width - right,
           y2: gridY,
-          stroke: "#d7dde7",
+          stroke: "#41506a",
           "stroke-width": 1
         }));
         const label = svgElement("text", {
           x: left - 8,
           y: gridY + 4,
           "text-anchor": "end",
-          fill: "#647086",
+          fill: "#a9b8cc",
           "font-size": 11
         });
         label.textContent = labelValue.toFixed(1);
@@ -1885,7 +1927,7 @@ const dashboardHtml = String.raw`<!doctype html>
         telemetryChart.appendChild(svgElement("polyline", {
           points: tempPoints,
           fill: "none",
-          stroke: "#cf3030",
+          stroke: "#ff6b6b",
           "stroke-width": 2.5
         }));
       }
@@ -1894,7 +1936,7 @@ const dashboardHtml = String.raw`<!doctype html>
         telemetryChart.appendChild(svgElement("polyline", {
           points: humidityPoints,
           fill: "none",
-          stroke: "#157347",
+          stroke: "#45e4ee",
           "stroke-width": 2.5
         }));
       }
@@ -1904,16 +1946,16 @@ const dashboardHtml = String.raw`<!doctype html>
         y1: top + plotHeight,
         x2: width - right,
         y2: top + plotHeight,
-        stroke: "#647086",
+        stroke: "#a9b8cc",
         "stroke-width": 1
       });
       telemetryChart.appendChild(axis);
 
-      const legendTemp = svgElement("text", { x: left, y: height - 10, fill: "#cf3030", "font-size": 12 });
+      const legendTemp = svgElement("text", { x: left, y: height - 10, fill: "#ff6b6b", "font-size": 12 });
       legendTemp.textContent = t("chartLegendTemp") + " (C)";
       telemetryChart.appendChild(legendTemp);
 
-      const legendHumidity = svgElement("text", { x: left + 120, y: height - 10, fill: "#157347", "font-size": 12 });
+      const legendHumidity = svgElement("text", { x: left + 120, y: height - 10, fill: "#45e4ee", "font-size": 12 });
       legendHumidity.textContent = t("chartLegendHumidity") + " (%)";
       telemetryChart.appendChild(legendHumidity);
     }
@@ -2606,14 +2648,15 @@ function publicPageHtml(pageName = "home") {
   <title>${page.title}</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f6f8fb;
-      --panel: #ffffff;
-      --line: #d7dde7;
-      --text: #172033;
-      --muted: #647086;
-      --brand: #1f6feb;
-      --brand-dark: #163f91;
+      color-scheme: dark;
+      --bg: #1e2939;
+      --panel: #243247;
+      --panel-soft: #2b3a51;
+      --line: #41506a;
+      --text: #eef7ff;
+      --muted: #a9b8cc;
+      --brand: #45e4ee;
+      --brand-dark: #7ff5fb;
     }
 
     * {
@@ -2630,7 +2673,7 @@ function publicPageHtml(pageName = "home") {
     }
 
     header {
-      background: var(--panel);
+      background: #172235;
       border-bottom: 1px solid var(--line);
     }
 
@@ -2650,10 +2693,22 @@ function publicPageHtml(pageName = "home") {
     }
 
     .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       font-weight: 700;
       color: var(--text);
       text-decoration: none;
       font-size: 18px;
+    }
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--bg);
+      border: 1px solid rgba(255, 255, 255, 0.12);
     }
 
     nav {
@@ -2676,7 +2731,7 @@ function publicPageHtml(pageName = "home") {
     nav a:hover,
     nav a.active {
       border-color: var(--line);
-      background: #fff;
+      background: var(--panel-soft);
       color: var(--brand-dark);
     }
 
@@ -2709,7 +2764,7 @@ function publicPageHtml(pageName = "home") {
 
     .lead {
       margin: 0;
-      color: #2f3a4f;
+      color: var(--muted);
       font-size: 20px;
       max-width: 760px;
     }
@@ -2746,15 +2801,15 @@ function publicPageHtml(pageName = "home") {
       min-height: 40px;
       border-radius: 6px;
       padding: 0 14px;
-      border: 1px solid var(--brand);
-      background: var(--brand);
-      color: #fff;
+      border: 1px solid #1fb9c7;
+      background: #1fb9c7;
+      color: #06131c;
       text-decoration: none;
       font-weight: 700;
     }
 
     .button.secondary {
-      background: #fff;
+      background: transparent;
       color: var(--brand-dark);
       border-color: var(--line);
     }
@@ -2824,7 +2879,10 @@ function publicPageHtml(pageName = "home") {
 <body>
   <header>
     <div class="topbar">
-      <a class="brand" href="/">Triotech Snjallh&uacute;s</a>
+      <a class="brand" href="/">
+        <img class="brand-logo" src="/assets/LOGO_Triotech.png" alt="Triotech">
+        <span>Triotech Snjallh&uacute;s</span>
+      </a>
       <nav aria-label="Public navigation">${navHtml}</nav>
     </div>
   </header>
@@ -4834,6 +4892,10 @@ app.get("/health", async () => {
     ok: true,
     mqttConnected: mqttClient.connected
   };
+});
+
+app.get("/assets/LOGO_Triotech.png", async (req, reply) => {
+  return reply.type("image/png").send(fs.createReadStream(LOGO_FILE));
 });
 
 app.get("/", async (req, reply) => {
