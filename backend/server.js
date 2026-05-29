@@ -1123,10 +1123,7 @@ const dashboardHtml = String.raw`<!doctype html>
     deviceFilter.value = localStorage.getItem("snjallhus_device_filter") || "";
     alarmFilter.value = localStorage.getItem("snjallhus_alarm_filter") || "";
 
-    deviceSection.hidden = !isDevicePage;
-    deviceDetailSection.hidden = !isDeviceDetailPage;
-    alarmSection.hidden = !isAlarmPage;
-    settingsSection.hidden = !isSettingsPage;
+    applyProtectedSectionVisibility();
     passwordResetSection.hidden = !isPasswordResetPage;
     devicesLink.classList.toggle("active", isDevicePage || isDeviceDetailPage);
     alarmsLink.classList.toggle("active", isAlarmPage);
@@ -1134,6 +1131,22 @@ const dashboardHtml = String.raw`<!doctype html>
 
     function authHeaders() {
       return {};
+    }
+
+    function mustChangePasswordBeforeUse() {
+      return Boolean(currentUser && currentUser.must_change_password);
+    }
+
+    function applyProtectedSectionVisibility() {
+      const blocked = mustChangePasswordBeforeUse();
+      deviceSection.hidden = blocked || !isDevicePage;
+      deviceDetailSection.hidden = blocked || !isDeviceDetailPage;
+      alarmSection.hidden = blocked || !isAlarmPage;
+      settingsSection.hidden = blocked || !isSettingsPage;
+
+      if (blocked) {
+        superAdminSection.hidden = true;
+      }
     }
 
     const translations = {
@@ -1184,6 +1197,7 @@ const dashboardHtml = String.raw`<!doctype html>
         noAlarmMatches: "Engar viðvaranir passa við síuna.",
         passwordMismatch: "Nýju lykilorðin passa ekki saman",
         passwordChanged: "breytt",
+        passwordChangeRequiredStatus: "Skiptu um lykilorð til að halda áfram",
         activeValue: "Virkt gildi",
         savePrefix: "vista ",
         columnDeviceId: "Tæki",
@@ -1324,6 +1338,7 @@ const dashboardHtml = String.raw`<!doctype html>
         noAlarmMatches: "No alarms match the current filter.",
         passwordMismatch: "New passwords do not match",
         passwordChanged: "changed",
+        passwordChangeRequiredStatus: "Change password to continue",
         activeValue: "Active value",
         savePrefix: "save ",
         columnDeviceId: "Device ID",
@@ -2350,7 +2365,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     function renderSuperAdminWorkspace() {
-      superAdminSection.hidden = !isSettingsPage || !isSuperUser();
+      superAdminSection.hidden = !isSettingsPage || !isSuperUser() || mustChangePasswordBeforeUse();
 
       if (superAdminSection.hidden) {
         return;
@@ -2822,7 +2837,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function loadDeviceTelemetry() {
-      if (!isDeviceDetailPage || !currentUser) {
+      if (!isDeviceDetailPage || !currentUser || mustChangePasswordBeforeUse()) {
         return;
       }
 
@@ -2852,7 +2867,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     function startTelemetryRefreshTimer() {
-      if (!isDeviceDetailPage || telemetryRefreshTimer) {
+      if (!isDeviceDetailPage || telemetryRefreshTimer || mustChangePasswordBeforeUse()) {
         return;
       }
 
@@ -2937,7 +2952,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function loadNotificationSettings() {
-      if (!isSettingsPage || !currentUser) {
+      if (!isSettingsPage || !currentUser || mustChangePasswordBeforeUse()) {
         return;
       }
 
@@ -2991,7 +3006,7 @@ const dashboardHtml = String.raw`<!doctype html>
     }
 
     async function loadSuperAdminWorkspace() {
-      if (!isSettingsPage || !isSuperUser()) {
+      if (!isSettingsPage || !isSuperUser() || mustChangePasswordBeforeUse()) {
         superAdminSection.hidden = true;
         adminCustomers = [];
         adminUsers = [];
@@ -3097,6 +3112,11 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
+      if (mustChangePasswordBeforeUse()) {
+        apiStatus.textContent = t("passwordChangeRequiredStatus");
+        return;
+      }
+
       try {
         const response = await fetch("/api/v1/state", { headers: authHeaders() });
         if (response.status === 401) {
@@ -3112,9 +3132,35 @@ const dashboardHtml = String.raw`<!doctype html>
       }
     }
 
+    function clearProtectedDashboardData() {
+      latestDevices = [];
+      latestAlarms = [];
+      latestRaw = {};
+      latestTelemetry = [];
+      renderDevices([]);
+      renderAlarms([]);
+      renderDeviceDetail(null, []);
+      renderDeviceTags({});
+      renderTelemetry([]);
+
+      if (telemetryRefreshTimer) {
+        clearInterval(telemetryRefreshTimer);
+        telemetryRefreshTimer = null;
+      }
+
+      notificationEmailsInput.value = "";
+      notificationEmailsStatus.textContent = "";
+      superAdminSection.hidden = true;
+      adminCustomers = [];
+      adminUsers = [];
+      adminDevices = [];
+      clearAdminTables();
+    }
+
     function setCurrentUser(user) {
       currentUser = user;
       const loggedIn = Boolean(user);
+      const mustChangePassword = mustChangePasswordBeforeUse();
 
       emailInput.hidden = loggedIn || isPasswordResetPage;
       passwordInput.hidden = loggedIn || isPasswordResetPage;
@@ -3122,32 +3168,22 @@ const dashboardHtml = String.raw`<!doctype html>
       forgotPasswordButton.hidden = loggedIn || isPasswordResetPage;
       logoutButton.hidden = !loggedIn;
       userInfo.textContent = loggedIn ? user.email + " (" + user.role + ")" : "";
-      passwordChangeSection.hidden = !loggedIn || !user.must_change_password;
+      passwordChangeSection.hidden = !mustChangePassword;
       passwordResetSection.hidden = !isPasswordResetPage;
+      devicesLink.hidden = mustChangePassword;
+      alarmsLink.hidden = mustChangePassword;
+      settingsLink.hidden = mustChangePassword;
+      applyProtectedSectionVisibility();
 
-      if (!loggedIn) {
-        apiStatus.textContent = t("notLoggedIn");
-        wsStatus.textContent = t("notConnected");
-        latestDevices = [];
-        latestAlarms = [];
-        latestRaw = {};
-        latestTelemetry = [];
-        renderDevices([]);
-        renderAlarms([]);
-        renderDeviceDetail(null, []);
-        renderDeviceTags({});
-        renderTelemetry([]);
-        if (telemetryRefreshTimer) {
-          clearInterval(telemetryRefreshTimer);
-          telemetryRefreshTimer = null;
+      if (!loggedIn || mustChangePassword) {
+        if (ws) {
+          ws.close();
+          ws = null;
         }
-        notificationEmailsInput.value = "";
-        notificationEmailsStatus.textContent = "";
-        superAdminSection.hidden = true;
-        adminCustomers = [];
-        adminUsers = [];
-        adminDevices = [];
-        clearAdminTables();
+
+        apiStatus.textContent = mustChangePassword ? t("passwordChangeRequiredStatus") : t("notLoggedIn");
+        wsStatus.textContent = t("notConnected");
+        clearProtectedDashboardData();
       }
     }
 
@@ -3197,6 +3233,11 @@ const dashboardHtml = String.raw`<!doctype html>
       localStorage.setItem("snjallhus_email", emailInput.value.trim());
       passwordInput.value = "";
       setCurrentUser(body.user);
+
+      if (body.user.must_change_password) {
+        return;
+      }
+
       await loadState();
       await loadDeviceTelemetry();
       await loadNotificationSettings();
@@ -3221,6 +3262,11 @@ const dashboardHtml = String.raw`<!doctype html>
 
       const body = await response.json();
       setCurrentUser(body.user);
+
+      if (body.user.must_change_password) {
+        return;
+      }
+
       await loadState();
       await loadDeviceTelemetry();
       await loadNotificationSettings();
@@ -3255,6 +3301,15 @@ const dashboardHtml = String.raw`<!doctype html>
       confirmPasswordInput.value = "";
       passwordChangeStatus.textContent = t("passwordChanged");
       setCurrentUser(body.user);
+
+      if (!body.user.must_change_password) {
+        await loadState();
+        await loadDeviceTelemetry();
+        await loadNotificationSettings();
+        startTelemetryRefreshTimer();
+        connectWs();
+      }
+
       setTimeout(() => {
         passwordChangeStatus.textContent = "";
       }, 1500);
@@ -3307,6 +3362,11 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
+      if (mustChangePasswordBeforeUse()) {
+        wsStatus.textContent = t("notConnected");
+        return;
+      }
+
       const scheme = location.protocol === "https:" ? "wss" : "ws";
       const url = scheme + "://" + location.host + "/api/v1/ws";
       ws = new WebSocket(url);
@@ -3324,7 +3384,7 @@ const dashboardHtml = String.raw`<!doctype html>
 
       ws.addEventListener("close", () => {
         wsStatus.textContent = t("disconnected");
-        if (currentUser) {
+        if (currentUser && !mustChangePasswordBeforeUse()) {
           setTimeout(connectWs, 3000);
         }
       });
@@ -4038,6 +4098,13 @@ function userCanUseDashboard(user) {
   return subscriptionAllowsLogin(user.subscription);
 }
 
+function requestAllowsPasswordChangeOnlyUser(req) {
+  const pathname = String(req.url || "").split("?")[0];
+  return pathname === "/api/v1/me"
+    || pathname === "/api/v1/change-password"
+    || pathname === "/api/v1/logout";
+}
+
 async function refreshUserForAccess(user) {
   if (!user || user.id === "api-token-admin" || !db) {
     return user;
@@ -4176,6 +4243,14 @@ async function checkAuth(req, reply) {
     reply.code(402).send({
       error: "Subscription inactive",
       subscription: user.subscription || null
+    });
+    return;
+  }
+
+  if (user.must_change_password && !requestAllowsPasswordChangeOnlyUser(req)) {
+    reply.code(403).send({
+      error: "Password change required",
+      must_change_password: true
     });
     return;
   }
@@ -7720,6 +7795,11 @@ app.get("/api/v1/ws", { websocket: true }, (socket, req) => {
 
     if (!userCanUseDashboard(user)) {
       socket.close(1008, "Subscription inactive");
+      return;
+    }
+
+    if (user.must_change_password) {
+      socket.close(1008, "Password change required");
       return;
     }
 
