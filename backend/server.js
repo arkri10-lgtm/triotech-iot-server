@@ -861,7 +861,7 @@ const dashboardHtml = String.raw`<!doctype html>
       <div id="superAdminSection" class="super-admin-section" hidden>
         <h2 id="superAdminTitle">Kerfisstj&oacute;rn</h2>
 
-        <div class="admin-panel">
+        <div id="adminCustomersPanel" class="admin-panel">
           <h3 id="adminCustomersTitle">Vi&eth;skiptavinir</h3>
           <div class="admin-form">
             <input id="adminCustomerIdInput" type="text" autocomplete="off" placeholder="customer-id">
@@ -877,12 +877,12 @@ const dashboardHtml = String.raw`<!doctype html>
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th id="adminCustomerIdHeader">ID</th>
-                  <th id="adminCustomerNameHeader">Nafn</th>
-                  <th id="adminCustomerStatusHeader">Sta&eth;a</th>
-                  <th id="adminCustomerPlanHeader">&Aacute;skrift</th>
-                  <th id="adminCustomerPaidUntilHeader">Greitt til</th>
-                  <th id="adminCustomerLoginHeader">A&eth;gangur</th>
+                  <th id="adminCustomerIdHeader"><button class="sort-button" data-admin-sort="customers" data-sort-key="id" data-sort-type="text">ID <span class="sort-indicator"></span></button></th>
+                  <th id="adminCustomerNameHeader"><button class="sort-button" data-admin-sort="customers" data-sort-key="name" data-sort-type="text">Nafn <span class="sort-indicator"></span></button></th>
+                  <th id="adminCustomerStatusHeader"><button class="sort-button" data-admin-sort="customers" data-sort-key="subscription_status" data-sort-type="text">Sta&eth;a <span class="sort-indicator"></span></button></th>
+                  <th id="adminCustomerPlanHeader"><button class="sort-button" data-admin-sort="customers" data-sort-key="subscription_plan" data-sort-type="text">&Aacute;skrift <span class="sort-indicator"></span></button></th>
+                  <th id="adminCustomerPaidUntilHeader"><button class="sort-button" data-admin-sort="customers" data-sort-key="paid_until" data-sort-type="time">Greitt til <span class="sort-indicator"></span></button></th>
+                  <th id="adminCustomerLoginHeader"><button class="sort-button" data-admin-sort="customers" data-sort-key="login_enabled" data-sort-type="text">A&eth;gangur <span class="sort-indicator"></span></button></th>
                   <th id="adminCustomerSaveHeader">Vista</th>
                   <th id="adminCustomerDeleteHeader">Ey&eth;a</th>
                 </tr>
@@ -894,7 +894,7 @@ const dashboardHtml = String.raw`<!doctype html>
           </div>
         </div>
 
-        <div class="admin-panel">
+        <div id="adminUsersPanel" class="admin-panel">
           <h3 id="adminUsersTitle">Notendur</h3>
           <div class="admin-form">
             <input id="adminUserEmailInput" class="wide-input" type="email" autocomplete="off" placeholder="netfang">
@@ -907,9 +907,9 @@ const dashboardHtml = String.raw`<!doctype html>
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th id="adminUserEmailHeader">Netfang</th>
-                  <th id="adminUserCustomerHeader">Vi&eth;skiptavinur</th>
-                  <th id="adminUserRoleHeader">Hlutverk</th>
+                  <th id="adminUserEmailHeader"><button class="sort-button" data-admin-sort="users" data-sort-key="email" data-sort-type="text">Netfang <span class="sort-indicator"></span></button></th>
+                  <th id="adminUserCustomerHeader"><button class="sort-button" data-admin-sort="users" data-sort-key="customer_name" data-sort-type="text">Vi&eth;skiptavinur <span class="sort-indicator"></span></button></th>
+                  <th id="adminUserRoleHeader"><button class="sort-button" data-admin-sort="users" data-sort-key="role" data-sort-type="text">Hlutverk <span class="sort-indicator"></span></button></th>
                   <th id="adminUserActiveHeader">Virkur</th>
                   <th id="adminUserMustChangeHeader">N&yacute;tt lykilor&eth;</th>
                   <th id="adminUserSaveHeader">Vista</th>
@@ -923,7 +923,7 @@ const dashboardHtml = String.raw`<!doctype html>
           </div>
         </div>
 
-        <div class="admin-panel">
+        <div id="adminDevicesPanel" class="admin-panel">
           <h3 id="adminDevicesTitle">T&aelig;kja&uacute;thlutun</h3>
           <div class="admin-form">
             <input id="adminDeviceIdInput" type="text" autocomplete="off" placeholder="SH1000">
@@ -935,9 +935,9 @@ const dashboardHtml = String.raw`<!doctype html>
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th id="adminDeviceIdHeader">T&aelig;ki</th>
-                  <th id="adminDeviceCustomerHeader">Vi&eth;skiptavinur</th>
-                  <th id="adminDeviceUpdatedHeader">Uppf&aelig;rt</th>
+                  <th id="adminDeviceIdHeader"><button class="sort-button" data-admin-sort="devices" data-sort-key="device_id" data-sort-type="text">T&aelig;ki <span class="sort-indicator"></span></button></th>
+                  <th id="adminDeviceCustomerHeader"><button class="sort-button" data-admin-sort="devices" data-sort-key="customer_name" data-sort-type="text">Vi&eth;skiptavinur <span class="sort-indicator"></span></button></th>
+                  <th id="adminDeviceUpdatedHeader"><button class="sort-button" data-admin-sort="devices" data-sort-key="updated_at" data-sort-type="time">Uppf&aelig;rt <span class="sort-indicator"></span></button></th>
                   <th id="adminDeviceSaveHeader">Vista</th>
                   <th id="adminDeviceDeleteHeader">Fjarl&aelig;gja</th>
                 </tr>
@@ -1091,6 +1091,11 @@ const dashboardHtml = String.raw`<!doctype html>
     const resetToken = new URLSearchParams(location.search).get("token") || "";
     const sortState = { key: "device_id", type: "text", direction: "asc" };
     const alarmSortState = { key: "created_at", type: "time", direction: "desc" };
+    const adminSortStates = {
+      customers: { key: "id", type: "text", direction: "asc" },
+      users: { key: "email", type: "text", direction: "asc" },
+      devices: { key: "device_id", type: "text", direction: "asc" }
+    };
     let latestRaw = {};
     let latestDevices = [];
     let latestAlarms = [];
@@ -1474,28 +1479,28 @@ const dashboardHtml = String.raw`<!doctype html>
       adminCustomerIdInput.placeholder = t("customerIdPlaceholder");
       adminCustomerNameInput.placeholder = t("customerNamePlaceholder");
       createCustomerButton.textContent = t("create");
-      adminCustomerIdHeader.textContent = t("customerId");
-      adminCustomerNameHeader.textContent = t("customerName");
-      adminCustomerStatusHeader.textContent = t("subscriptionStatus");
-      adminCustomerPlanHeader.textContent = t("subscriptionPlan");
-      adminCustomerPaidUntilHeader.textContent = t("paidUntil");
-      adminCustomerLoginHeader.textContent = t("loginAccess");
+      setSortLabel("#adminCustomersPanel", "id", t("customerId"));
+      setSortLabel("#adminCustomersPanel", "name", t("customerName"));
+      setSortLabel("#adminCustomersPanel", "subscription_status", t("subscriptionStatus"));
+      setSortLabel("#adminCustomersPanel", "subscription_plan", t("subscriptionPlan"));
+      setSortLabel("#adminCustomersPanel", "paid_until", t("paidUntil"));
+      setSortLabel("#adminCustomersPanel", "login_enabled", t("loginAccess"));
       adminCustomerSaveHeader.textContent = t("save");
       adminCustomerDeleteHeader.textContent = t("deleteText");
       adminUserEmailInput.placeholder = t("userEmailPlaceholder");
       createUserButton.textContent = t("addUser");
-      adminUserEmailHeader.textContent = t("userEmail");
-      adminUserCustomerHeader.textContent = t("customer");
-      adminUserRoleHeader.textContent = t("userRole");
+      setSortLabel("#adminUsersPanel", "email", t("userEmail"));
+      setSortLabel("#adminUsersPanel", "customer_name", t("customer"));
+      setSortLabel("#adminUsersPanel", "role", t("userRole"));
       adminUserActiveHeader.textContent = t("activeUser");
       adminUserMustChangeHeader.textContent = t("mustChangePassword");
       adminUserSaveHeader.textContent = t("save");
       adminUserResetHeader.textContent = t("resetUserPassword");
       adminDeviceIdInput.placeholder = t("deviceIdPlaceholder");
       assignDeviceButton.textContent = t("assignDevice");
-      adminDeviceIdHeader.textContent = t("columnDeviceId");
-      adminDeviceCustomerHeader.textContent = t("customer");
-      adminDeviceUpdatedHeader.textContent = t("updated");
+      setSortLabel("#adminDevicesPanel", "device_id", t("columnDeviceId"));
+      setSortLabel("#adminDevicesPanel", "customer_name", t("customer"));
+      setSortLabel("#adminDevicesPanel", "updated_at", t("updated"));
       adminDeviceSaveHeader.textContent = t("save");
       adminDeviceDeleteHeader.textContent = t("removeDevice");
       deviceDetailBack.textContent = t("backToDevices");
@@ -1549,6 +1554,7 @@ const dashboardHtml = String.raw`<!doctype html>
       setSortLabel("#alarmSection", "source_topic", t("columnTopic"));
       updateSortIndicators();
       updateAlarmSortIndicators();
+      updateAdminSortIndicators();
     }
 
     function fmt(value, suffix) {
@@ -1995,6 +2001,70 @@ const dashboardHtml = String.raw`<!doctype html>
       return select;
     }
 
+    function adminSortValue(tableName, row, key) {
+      if (key === "customer_name") {
+        return row.customer_name || row.customer_id || "";
+      }
+
+      if (key === "login_enabled") {
+        return row.login_enabled !== false ? t("accessOn") : t("accessOff");
+      }
+
+      return row[key];
+    }
+
+    function compareAdminRows(tableName, left, right) {
+      const state = adminSortStates[tableName];
+      const direction = state.direction === "desc" ? -1 : 1;
+      const leftValue = adminSortValue(tableName, left, state.key);
+      const rightValue = adminSortValue(tableName, right, state.key);
+      const leftEmpty = leftValue === null || leftValue === undefined || leftValue === "";
+      const rightEmpty = rightValue === null || rightValue === undefined || rightValue === "";
+
+      if (leftEmpty && rightEmpty) return 0;
+      if (leftEmpty) return 1;
+      if (rightEmpty) return -1;
+
+      let result = 0;
+
+      if (state.type === "time") {
+        result = Date.parse(leftValue) - Date.parse(rightValue);
+      } else if (state.type === "number") {
+        result = Number(leftValue) - Number(rightValue);
+      } else {
+        result = String(leftValue).localeCompare(String(rightValue), undefined, {
+          numeric: true,
+          sensitivity: "base"
+        });
+      }
+
+      if (!Number.isFinite(result)) {
+        result = 0;
+      }
+
+      return result * direction;
+    }
+
+    function sortedAdminRows(tableName, rows) {
+      return [...rows].sort((left, right) => compareAdminRows(tableName, left, right));
+    }
+
+    function updateAdminSortIndicators() {
+      document.querySelectorAll("[data-admin-sort]").forEach((button) => {
+        const tableName = button.dataset.adminSort;
+        const state = adminSortStates[tableName];
+        const indicator = button.querySelector(".sort-indicator");
+
+        if (!state || !indicator) {
+          return;
+        }
+
+        const active = button.dataset.sortKey === state.key;
+        button.setAttribute("aria-sort", active ? (state.direction === "asc" ? "ascending" : "descending") : "none");
+        indicator.textContent = active ? (state.direction === "asc" ? "\u25B2" : "\u25BC") : "";
+      });
+    }
+
     function clearAdminTables() {
       adminCustomerRows.innerHTML = '<tr><td colspan="8" class="empty">' + t("noCustomers") + '</td></tr>';
       adminUserRows.innerHTML = '<tr><td colspan="7" class="empty">' + t("noUsers") + '</td></tr>';
@@ -2010,7 +2080,7 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const customer of adminCustomers) {
+      for (const customer of sortedAdminRows("customers", adminCustomers)) {
         const row = document.createElement("tr");
         const nameInput = adminInput(customer.name, "wide-input");
         const statusSelect = adminSelect(subscriptionStatusOptions(), customer.subscription_status);
@@ -2023,7 +2093,7 @@ const dashboardHtml = String.raw`<!doctype html>
         saveButton.type = "button";
         saveButton.textContent = t("save");
         deleteButton.type = "button";
-        deleteButton.textContent = t("removeDevice");
+        deleteButton.textContent = t("deleteText");
         deleteButton.className = "danger-button";
 
         saveButton.addEventListener("click", async () => {
@@ -2079,7 +2149,7 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const user of adminUsers) {
+      for (const user of sortedAdminRows("users", adminUsers)) {
         const row = document.createElement("tr");
         const customerSelect = adminSelect(customerOptions(true), user.customer_id || "");
         const roleSelect = adminSelect(roleOptions(), user.role);
@@ -2145,7 +2215,7 @@ const dashboardHtml = String.raw`<!doctype html>
         return;
       }
 
-      for (const device of adminDevices) {
+      for (const device of sortedAdminRows("devices", adminDevices)) {
         const row = document.createElement("tr");
         const customerSelect = adminSelect(customerOptions(false), device.customer_id || "");
         const saveButton = document.createElement("button");
@@ -2154,7 +2224,7 @@ const dashboardHtml = String.raw`<!doctype html>
         saveButton.type = "button";
         saveButton.textContent = t("save");
         deleteButton.type = "button";
-        deleteButton.textContent = t("deleteText");
+        deleteButton.textContent = t("removeDevice");
         deleteButton.className = "danger-button";
 
         saveButton.addEventListener("click", async () => {
@@ -2207,6 +2277,7 @@ const dashboardHtml = String.raw`<!doctype html>
       renderAdminCustomers();
       renderAdminUsers();
       renderAdminDevices();
+      updateAdminSortIndicators();
     }
 
     async function saveRow(deviceId, phoneInput, addressInput, lowInput, highInput, humidityInput, intervalInput, button) {
@@ -3273,6 +3344,37 @@ const dashboardHtml = String.raw`<!doctype html>
     createCustomerButton.addEventListener("click", createCustomerFromForm);
     createUserButton.addEventListener("click", createUserFromForm);
     assignDeviceButton.addEventListener("click", assignDeviceFromForm);
+
+    document.querySelectorAll("[data-admin-sort]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const tableName = button.dataset.adminSort;
+        const state = adminSortStates[tableName];
+
+        if (!state) {
+          return;
+        }
+
+        const key = button.dataset.sortKey;
+
+        if (state.key === key) {
+          state.direction = state.direction === "asc" ? "desc" : "asc";
+        } else {
+          state.key = key;
+          state.type = button.dataset.sortType || "text";
+          state.direction = state.type === "time" ? "desc" : "asc";
+        }
+
+        if (tableName === "customers") {
+          renderAdminCustomers();
+        } else if (tableName === "users") {
+          renderAdminUsers();
+        } else if (tableName === "devices") {
+          renderAdminDevices();
+        }
+
+        updateAdminSortIndicators();
+      });
+    });
 
     document.querySelectorAll("#deviceSection .sort-button").forEach((button) => {
       button.addEventListener("click", () => {
