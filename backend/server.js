@@ -903,8 +903,10 @@ const dashboardHtml = String.raw`<!doctype html>
           <h3 id="adminUsersTitle">Notendur</h3>
           <div class="admin-form">
             <input id="adminUserEmailInput" class="wide-input" type="email" autocomplete="off" placeholder="netfang">
+            <input id="adminUserPasswordInput" type="text" autocomplete="off" placeholder="PW">
             <select id="adminUserCustomerSelect"></select>
             <select id="adminUserRoleSelect"></select>
+            <select id="adminUserMustChangeCreateSelect"></select>
             <button id="createUserButton" type="button">B&aelig;ta vi&eth;</button>
             <span id="adminUsersStatus" class="status-message"></span>
           </div>
@@ -1037,8 +1039,10 @@ const dashboardHtml = String.raw`<!doctype html>
     const adminCustomerDeleteHeader = document.getElementById("adminCustomerDeleteHeader");
     const adminUsersTitle = document.getElementById("adminUsersTitle");
     const adminUserEmailInput = document.getElementById("adminUserEmailInput");
+    const adminUserPasswordInput = document.getElementById("adminUserPasswordInput");
     const adminUserCustomerSelect = document.getElementById("adminUserCustomerSelect");
     const adminUserRoleSelect = document.getElementById("adminUserRoleSelect");
+    const adminUserMustChangeCreateSelect = document.getElementById("adminUserMustChangeCreateSelect");
     const createUserButton = document.getElementById("createUserButton");
     const adminUsersStatus = document.getElementById("adminUsersStatus");
     const adminUserRows = document.getElementById("adminUserRows");
@@ -1297,6 +1301,7 @@ const dashboardHtml = String.raw`<!doctype html>
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Nafn",
         userEmailPlaceholder: "netfang",
+        userPasswordPlaceholder: "PW",
         deviceIdPlaceholder: "SH1000"
       },
       en: {
@@ -1438,6 +1443,7 @@ const dashboardHtml = String.raw`<!doctype html>
         customerIdPlaceholder: "customer-id",
         customerNamePlaceholder: "Name",
         userEmailPlaceholder: "email",
+        userPasswordPlaceholder: "PW",
         deviceIdPlaceholder: "SH1000"
       }
     };
@@ -1538,6 +1544,9 @@ const dashboardHtml = String.raw`<!doctype html>
       adminCustomerSaveHeader.textContent = t("save");
       adminCustomerDeleteHeader.textContent = t("deleteText");
       adminUserEmailInput.placeholder = t("userEmailPlaceholder");
+      adminUserPasswordInput.placeholder = t("userPasswordPlaceholder");
+      adminUserPasswordInput.title = t("tempPassword");
+      adminUserMustChangeCreateSelect.title = t("mustChangePassword");
       createUserButton.textContent = t("addUser");
       setSortLabel("#adminUsersPanel", "email", t("userEmail"));
       setSortLabel("#adminUsersPanel", "customer_name", t("customer"));
@@ -2037,6 +2046,7 @@ const dashboardHtml = String.raw`<!doctype html>
       setSelectOptions(adminCustomerPlanSelect, subscriptionPlanOptions(), "monthly");
       setSelectOptions(adminCustomerLoginSelect, loginOptions(), "true");
       setSelectOptions(adminUserRoleSelect, roleOptions(), "customer");
+      setSelectOptions(adminUserMustChangeCreateSelect, boolOptions(), adminUserMustChangeCreateSelect.value || "false");
       setSelectOptions(adminUserCustomerSelect, customerOptions(true), adminUserCustomerSelect.value);
       setSelectOptions(adminDeviceCustomerSelect, customerOptions(false), adminDeviceCustomerSelect.value);
     }
@@ -3100,10 +3110,13 @@ const dashboardHtml = String.raw`<!doctype html>
         const result = await postJson("/api/v1/admin/users", {
           email: adminUserEmailInput.value,
           customer_id: adminUserCustomerSelect.value || null,
-          role: adminUserRoleSelect.value
+          role: adminUserRoleSelect.value,
+          password: adminUserPasswordInput.value,
+          must_change_password: adminUserMustChangeCreateSelect.value === "true"
         });
 
         adminUserEmailInput.value = "";
+        adminUserPasswordInput.value = "";
         adminUsersStatus.textContent = t("tempPassword") + ": " + result.temp_password;
         await loadSuperAdminWorkspace();
       } catch (error) {
@@ -5257,7 +5270,16 @@ async function createAdminUser(values) {
     throw requestError("Customer is required for this user role");
   }
 
-  const tempPassword = generateTempPassword();
+  const requestedPassword = String(values.password || "").trim();
+
+  if (requestedPassword && requestedPassword.length < 8) {
+    throw requestError("Password must be at least 8 characters");
+  }
+
+  const tempPassword = requestedPassword || generateTempPassword();
+  const mustChangePassword = requestedPassword
+    ? normalizeBoolean(values.must_change_password, false)
+    : true;
   const result = await db.query(
     `
       INSERT INTO app_users (
@@ -5269,7 +5291,7 @@ async function createAdminUser(values) {
         must_change_password,
         active
       )
-      VALUES ($1, $2, $3, $4, $5, true, true)
+      VALUES ($1, $2, $3, $4, $5, $6, true)
       RETURNING
         id,
         customer_id,
@@ -5280,7 +5302,7 @@ async function createAdminUser(values) {
         active,
         updated_at
     `,
-    [crypto.randomUUID(), customerId, email, hashPassword(tempPassword), role]
+    [crypto.randomUUID(), customerId, email, hashPassword(tempPassword), role, mustChangePassword]
   ).catch((error) => {
     if (error.code === "23505") {
       throw requestError("User already exists", 409);
