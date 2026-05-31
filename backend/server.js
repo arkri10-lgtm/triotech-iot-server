@@ -3208,7 +3208,9 @@ const dashboardHtml = String.raw`<!doctype html>
       loginButton.hidden = loggedIn || isPasswordResetPage;
       forgotPasswordButton.hidden = loggedIn || isPasswordResetPage;
       logoutButton.hidden = !loggedIn;
-      userInfo.textContent = loggedIn ? user.email + " (" + user.role + ")" : "";
+      userInfo.textContent = loggedIn
+        ? user.email + " (" + user.role + ")" + (user.customer_name ? " - " + user.customer_name : "")
+        : "";
       passwordChangeSection.hidden = !mustChangePassword;
       passwordResetSection.hidden = !isPasswordResetPage;
       devicesLink.hidden = mustChangePassword;
@@ -4056,6 +4058,7 @@ function publicUser(user) {
     email: user.email,
     role: user.role,
     customer_id: user.customer_id,
+    customer_name: user.customer_name || "",
     must_change_password: Boolean(user.must_change_password),
     subscription: user.subscription || null
   };
@@ -4067,6 +4070,7 @@ function apiTokenUser() {
     email: "api-token-admin",
     role: "super_admin",
     customer_id: null,
+    customer_name: "",
     must_change_password: false
   };
 }
@@ -4100,6 +4104,7 @@ function userFromRow(row) {
   return {
     id: row.id,
     customer_id: row.customer_id,
+    customer_name: row.customer_name || "",
     email: row.email,
     role: row.role,
     must_change_password: row.must_change_password,
@@ -4160,6 +4165,7 @@ async function refreshUserForAccess(user) {
         u.role,
         u.must_change_password,
         u.active,
+        c.name AS customer_name,
         c.subscription_status,
         c.subscription_plan,
         c.paid_until,
@@ -6878,6 +6884,7 @@ app.post("/api/v1/password-reset/request", async (req, reply) => {
           u.role,
           u.must_change_password,
           u.active,
+          c.name AS customer_name,
           c.subscription_status,
           c.subscription_plan,
           c.paid_until,
@@ -7071,6 +7078,7 @@ app.post("/api/v1/login", async (req, reply) => {
         u.role,
         u.must_change_password,
         u.active,
+        c.name AS customer_name,
         c.subscription_status,
         c.subscription_plan,
         c.paid_until,
